@@ -82,8 +82,9 @@ const getApiBase = () => {
   // Try to detect backend URL based on current domain
   let detectedBackendUrl: string | null = null;
   
-  // If on production domain (tahcom-kpi-portal.vercel.app), use the most recent known backend
-  if (currentHost === 'tahcom-kpi-portal.vercel.app' || currentHost.includes('tahcom-kpi-portal')) {
+  // If on production domain (tahcom-kpi-portal.vercel.app OR tahcom-portal.vercel.app), use the most recent known backend
+  if (currentHost === 'tahcom-kpi-portal.vercel.app' || currentHost === 'tahcom-portal.vercel.app' || 
+      currentHost.includes('tahcom-kpi-portal') || currentHost.includes('tahcom-portal')) {
     // For production domain, use the first (most recent) backend URL
     detectedBackendUrl = knownBackendUrls[0];
     console.log('[OurPartners] Production domain detected, using most recent backend:', detectedBackendUrl);
