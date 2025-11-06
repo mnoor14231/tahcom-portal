@@ -1,0 +1,29 @@
+{
+  "name": "Tahcom Our Partners",
+  "short_name": "Partners",
+  "description": "Tahcom Partners & Solutions Dashboard",
+  "start_url": "/our-partners",
+  "display": "standalone",
+  "background_color": "#FFF7ED",
+  "theme_color": "#8B4513",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/tahcomlogo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/tahcomlogo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["business", "productivity"],
+  "screenshots": [],
+  "related_applications": [],
+  "prefer_related_applications": false
+}
+

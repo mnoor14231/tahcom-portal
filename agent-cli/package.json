@@ -1,0 +1,30 @@
+{
+  "name": "tahcom-agent-cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "mcp:email": "tsx src/email-mcp.ts",
+    "start": "node --env-file=.env dist/index.js",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.68.0",
+    "@modelcontextprotocol/sdk": "^1.1.1",
+    "dotenv": "^16.4.5",
+    "inquirer": "^9.3.7",
+    "papaparse": "^5.4.1",
+    "puppeteer": "^23.7.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/inquirer": "^9.0.7",
+    "@types/node": "^20.11.30",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.4"
+  }
+}
+
+
+
