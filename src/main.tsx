@@ -4,16 +4,22 @@ import App from './App.tsx';
 import './style.css';
 import { deriveBrandColorsFromLogo, applyBrandColors } from './utils/brandColors.ts';
 
-// Clean up any problematic service workers on page load
+// CRITICAL: Completely disable service worker for now to fix API issues
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.getRegistrations().then((registrations) => {
     registrations.forEach((registration) => {
-      // Unregister old service workers that might be causing issues
-      // The new one will be registered by VitePWA plugin
+      // Unregister ALL service workers immediately
       registration.unregister().then((success) => {
-        if (success) {
-          console.log('[ServiceWorker] Old service worker unregistered');
-        }
+        console.log('[ServiceWorker] Unregistered:', success);
+      });
+    });
+  });
+  
+  // Also unregister on controller change
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    navigator.serviceWorker.getRegistrations().then((registrations) => {
+      registrations.forEach((registration) => {
+        registration.unregister();
       });
     });
   });
