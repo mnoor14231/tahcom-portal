@@ -8,7 +8,7 @@ import { EditTaskModal } from '../components/modals/EditTaskModal.tsx';
 import { CompleteTaskModal } from '../components/modals/CompleteTaskModal.tsx';
 import { TaskAttachments } from '../components/tasks/TaskAttachments.tsx';
 import { motion } from 'framer-motion';
-import { ListChecks, LayoutGrid, Filter, Plus, CheckCircle, CheckCircle2, Clock, AlertCircle, XCircle, Calendar, Target, Edit3, Trash2 } from 'lucide-react';
+import { ListChecks, LayoutGrid, Filter, Plus, CheckCircle, CheckCircle2, Clock, AlertCircle, XCircle, Calendar, Target, Edit3, Trash2, RefreshCw } from 'lucide-react';
 
 const STATUSES: TaskStatus[] = ['backlog', 'in_progress', 'pending_approval', 'completed'];
 const PRIORITIES: TaskPriority[] = ['Low', 'Medium', 'High'];
@@ -28,13 +28,17 @@ function statusIcon(s: TaskStatus) {
 
 export function TasksPage() {
   const { user } = useAuth();
-  const { state, upsertTask, deleteTask, addActivity, updateKpi } = useData();
+  const { state, upsertTask, deleteTask, addActivity, updateKpi, refreshDirectory } = useData();
   const { showNotification } = useNotifications();
   const isManager = hasRole(user, ['manager']);
   const canCreate = isManager || !!user?.canCreateTasks;
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const scopeDept = user?.role === 'admin' ? state.previewDepartmentCode : user?.departmentCode;
-  const tasks = useMemo(() => state.tasks.filter(t => t.departmentCode === scopeDept), [state.tasks, scopeDept]);
+  const tasks = useMemo(() => {
+    if (!scopeDept) return [];
+    return state.tasks.filter(t => t.departmentCode === scopeDept);
+  }, [state.tasks, scopeDept]);
   const deptUsers = state.users.filter(u => u.departmentCode === scopeDept && u.role !== 'admin');
   const deptKpis = state.kpis.filter(k => k.departmentCode === scopeDept);
 
@@ -49,8 +53,31 @@ export function TasksPage() {
   const filtered = tasks.filter(t => (filterStatus === 'all' || t.status === filterStatus) && (filterPriority === 'all' || t.priority === filterPriority));
 
   function handleAddTask(taskData: Omit<Task, 'id' | 'comments' | 'attachments'>) {
+    // Ensure departmentCode is set correctly
+    const taskDepartmentCode = taskData.departmentCode || scopeDept || user?.departmentCode;
+    if (!taskDepartmentCode) {
+      console.error('Cannot create task: no department code available');
+      return;
+    }
+    
+    // Determine initial status based on due date and assignees if not already set
+    let taskStatus = taskData.status;
+    if (taskData.status === 'backlog' && taskData.assigneeUserIds.length > 0 && taskData.dueDate) {
+      const taskDueDate = new Date(taskData.dueDate);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      taskDueDate.setHours(0, 0, 0, 0);
+      
+      // If task has assignees and due date is today or in the future, set to in_progress
+      if (taskDueDate >= today) {
+        taskStatus = 'in_progress';
+      }
+    }
+    
     const newTask: Task = {
       ...taskData,
+      departmentCode: taskDepartmentCode,
+      status: taskStatus,
       id: `t_${Math.random().toString(36).slice(2, 9)}`,
       comments: [],
       attachments: [],
@@ -274,6 +301,17 @@ export function TasksPage() {
     }
   }
 
+  async function handleRefresh() {
+    setIsRefreshing(true);
+    try {
+      await refreshDirectory();
+    } catch (error) {
+      console.error('Failed to refresh tasks', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -286,17 +324,30 @@ export function TasksPage() {
             Organize and complete your team's objectives
           </p>
         </div>
-        {canCreate && (
+        <div className="flex items-center gap-3">
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
-            className="px-5 py-3 bg-gradient-brand text-white rounded-xl font-bold shadow-lg hover:shadow-xl transition-all flex items-center gap-2"
-            onClick={() => setIsModalOpen(true)}
+            className="px-4 py-2.5 bg-white border-2 border-gray-300 text-gray-700 rounded-xl font-semibold shadow-sm hover:shadow-md hover:border-brand-1 hover:text-brand-1 transition-all flex items-center gap-2"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            title="Refresh tasks"
           >
-            <Plus size={20} />
-            New Task
+            <RefreshCw size={18} className={isRefreshing ? 'animate-spin' : ''} />
+            <span className="hidden sm:inline">Refresh</span>
           </motion.button>
-        )}
+          {canCreate && (
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              className="px-5 py-3 bg-gradient-brand text-white rounded-xl font-bold shadow-lg hover:shadow-xl transition-all flex items-center gap-2"
+              onClick={() => setIsModalOpen(true)}
+            >
+              <Plus size={20} />
+              New Task
+            </motion.button>
+          )}
+        </div>
       </div>
 
       <div className="card card-padding bg-white border-gray-200 shadow-sm">
@@ -385,6 +436,7 @@ export function TasksPage() {
                     const isOverdue = t.dueDate && new Date(t.dueDate) < new Date() && t.status !== 'completed';
                     const relatedKpi = t.relatedKpiId ? state.kpis.find(k => k.id === t.relatedKpiId) : null;
                     const isMyTask = user?.id ? t.assigneeUserIds.includes(user.id) : false;
+                    const canEdit = isManager || (user?.id && t.assigneeUserIds.includes(user.id));
                     return (
                       <motion.div
                         key={t.id}
@@ -413,7 +465,7 @@ export function TasksPage() {
                             </motion.div>
                           )}
                           <div className="flex items-start justify-between gap-2">
-                            <h4 className="text-sm font-bold text-gray-900 flex-1 leading-snug line-clamp-2">{t.title}</h4>
+                            <h4 className="text-sm font-bold text-gray-900 flex-1 leading-snug break-words">{t.title}</h4>
                             <span className={`px-2 py-1 rounded-lg text-xs font-semibold border ${priorityColor(t.priority)} whitespace-nowrap flex-shrink-0`}>
                               {t.priority}
                             </span>
@@ -422,7 +474,7 @@ export function TasksPage() {
                         
                         {/* Description */}
                         {t.description && (
-                          <p className="text-xs text-gray-600 mb-3 line-clamp-2 leading-relaxed">{t.description}</p>
+                          <p className="text-xs text-gray-600 mb-3 break-words leading-relaxed whitespace-pre-wrap">{t.description}</p>
                         )}
                         
                         {/* Related KPI Badge */}
@@ -524,7 +576,7 @@ export function TasksPage() {
                               </motion.button>
                             </div>
                           )}
-                          {isManager && (
+                          {canEdit && (
                             <div className="flex gap-2 pt-2 border-t border-gray-100">
                               <motion.button
                                 whileHover={{ scale: 1.02 }}
@@ -535,15 +587,17 @@ export function TasksPage() {
                                 <Edit3 size={14} />
                                 Edit
                               </motion.button>
-                              <motion.button
-                                whileHover={{ scale: 1.02 }}
-                                whileTap={{ scale: 0.98 }}
-                                className="flex-1 px-3 py-2 text-sm rounded-lg bg-gradient-to-r from-red-500 to-red-600 text-white hover:from-red-600 hover:to-red-700 transition-all font-semibold shadow-sm flex items-center justify-center gap-1"
-                                onClick={() => handleDeleteTask(t)}
-                              >
-                                <Trash2 size={14} />
-                                Delete
-                              </motion.button>
+                              {isManager && (
+                                <motion.button
+                                  whileHover={{ scale: 1.02 }}
+                                  whileTap={{ scale: 0.98 }}
+                                  className="flex-1 px-3 py-2 text-sm rounded-lg bg-gradient-to-r from-red-500 to-red-600 text-white hover:from-red-600 hover:to-red-700 transition-all font-semibold shadow-sm flex items-center justify-center gap-1"
+                                  onClick={() => handleDeleteTask(t)}
+                                >
+                                  <Trash2 size={14} />
+                                  Delete
+                                </motion.button>
+                              )}
                             </div>
                           )}
                         </div>
@@ -579,6 +633,7 @@ export function TasksPage() {
                 const isOverdue = t.dueDate && new Date(t.dueDate) < new Date() && t.status !== 'completed';
                 const relatedKpi = t.relatedKpiId ? state.kpis.find(k => k.id === t.relatedKpiId) : null;
                 const isMyTask = user?.id ? t.assigneeUserIds.includes(user.id) : false;
+                const canEdit = isManager || (user?.id && t.assigneeUserIds.includes(user.id));
                 return (
                   <motion.tr
                     key={t.id}
@@ -603,7 +658,7 @@ export function TasksPage() {
                         <div className="font-semibold text-gray-900">{t.title}</div>
                       </div>
                       {t.description && (
-                        <div className="text-xs text-gray-500 mt-1 line-clamp-1">{t.description}</div>
+                        <div className="text-xs text-gray-500 mt-1 break-words whitespace-pre-wrap">{t.description}</div>
                       )}
                       {t.attachments.length > 0 && (
                         <div className="text-xs text-brand-1 mt-1 flex items-center gap-1">
@@ -683,7 +738,7 @@ export function TasksPage() {
                             </button>
                           </>
                         )}
-                        {isManager && (
+                        {canEdit && (
                           <>
                             <button
                               className="px-3 py-1.5 text-xs rounded-lg bg-gradient-to-r from-blue-100 to-blue-200 text-blue-700 hover:from-blue-200 hover:to-blue-300 transition-all font-semibold border border-blue-200 flex items-center gap-1"
@@ -692,13 +747,15 @@ export function TasksPage() {
                               <Edit3 size={12} />
                               Edit
                             </button>
-                            <button
-                              className="px-3 py-1.5 text-xs rounded-lg bg-gradient-to-r from-red-100 to-red-200 text-red-700 hover:from-red-200 hover:to-red-300 transition-all font-semibold border border-red-200 flex items-center gap-1"
-                              onClick={() => handleDeleteTask(t)}
-                            >
-                              <Trash2 size={12} />
-                              Delete
-                            </button>
+                            {isManager && (
+                              <button
+                                className="px-3 py-1.5 text-xs rounded-lg bg-gradient-to-r from-red-100 to-red-200 text-red-700 hover:from-red-200 hover:to-red-300 transition-all font-semibold border border-red-200 flex items-center gap-1"
+                                onClick={() => handleDeleteTask(t)}
+                              >
+                                <Trash2 size={12} />
+                                Delete
+                              </button>
+                            )}
                           </>
                         )}
                       </div>
@@ -726,7 +783,7 @@ export function TasksPage() {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onAdd={handleAddTask}
-        departmentCode={scopeDept || ''}
+        departmentCode={scopeDept || user?.departmentCode || ''}
         users={deptUsers}
         kpis={deptKpis}
       />

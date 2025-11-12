@@ -63,6 +63,8 @@ export function AddKpiModal({ isOpen, onClose, onAdd, departmentCode, users }: A
       target,
       currentValue,
       ownerUserId: ownerUserId || undefined,
+      timeframe: timeframe as 'Daily' | 'Weekly' | 'Monthly' | 'Quarterly' | 'Annually',
+      periodStartDate: new Date().toISOString(),
     });
     
     // Reset form

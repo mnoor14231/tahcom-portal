@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, CheckSquare, Calendar, AlertCircle } from 'lucide-react';
-import type { Task, TaskPriority } from '../../types.ts';
-import { formatISO, addDays } from 'date-fns';
+import type { Task, TaskPriority, TaskStatus } from '../../types.ts';
+import { formatISO } from 'date-fns';
 
 interface NewTaskModalProps {
   isOpen: boolean;
@@ -17,13 +17,31 @@ export function NewTaskModal({ isOpen, onClose, onAdd, departmentCode, users, kp
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [assigneeUserIds, setAssigneeUserIds] = useState<string[]>([]);
-  const [dueDate, setDueDate] = useState(formatISO(addDays(new Date(), 7)).split('T')[0]);
+  const [dueDate, setDueDate] = useState(formatISO(new Date()).split('T')[0]);
   const [priority, setPriority] = useState<TaskPriority>('Medium');
   const [relatedKpiId, setRelatedKpiId] = useState<string>('');
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim()) return;
+    
+    // Determine initial status based on due date and assignees
+    let initialStatus: TaskStatus = 'backlog';
+    if (assigneeUserIds.length > 0 && dueDate) {
+      const taskDueDate = new Date(dueDate);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      taskDueDate.setHours(0, 0, 0, 0);
+      
+      // If task has assignees and due date is today or in the future, set to in_progress
+      if (taskDueDate >= today) {
+        initialStatus = 'in_progress';
+      }
+      // If due date is in the past, keep as backlog (overdue tasks)
+      else {
+        initialStatus = 'backlog';
+      }
+    }
     
     onAdd({
       departmentCode,
@@ -32,7 +50,7 @@ export function NewTaskModal({ isOpen, onClose, onAdd, departmentCode, users, kp
       assigneeUserIds,
       dueDate: dueDate ? formatISO(new Date(dueDate)) : undefined,
       priority,
-      status: 'backlog',
+      status: initialStatus,
       relatedKpiId: relatedKpiId || undefined,
     });
     
@@ -40,7 +58,7 @@ export function NewTaskModal({ isOpen, onClose, onAdd, departmentCode, users, kp
     setTitle('');
     setDescription('');
     setAssigneeUserIds([]);
-    setDueDate(formatISO(addDays(new Date(), 7)).split('T')[0]);
+    setDueDate(formatISO(new Date()).split('T')[0]);
     setPriority('Medium');
     setRelatedKpiId('');
     onClose();

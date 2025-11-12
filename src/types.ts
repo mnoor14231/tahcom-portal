@@ -41,6 +41,8 @@ export interface KPI {
   currentValue: number;
   ownerUserId?: string;
   lastUpdated: string; // ISO date
+  timeframe?: 'Daily' | 'Weekly' | 'Monthly' | 'Quarterly' | 'Annually';
+  periodStartDate?: string; // ISO date - when current period started
 }
 
 export type TaskStatus = 'backlog' | 'in_progress' | 'pending_approval' | 'completed';
@@ -87,7 +89,7 @@ export interface ActivityLog {
   relatedKpiId?: string;
 }
 
-export type NotificationType = 'task_assigned' | 'task_due_soon' | 'task_overdue' | 'task_approved' | 'task_rejected';
+export type NotificationType = 'task_assigned' | 'task_due_soon' | 'task_overdue' | 'task_approved' | 'task_rejected' | 'kpi_reset';
 
 export interface Notification {
   id: string;

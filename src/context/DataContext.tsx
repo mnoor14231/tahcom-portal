@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import type {
   ActivityLog,
   AppState,
@@ -95,6 +95,8 @@ interface KpiRow {
   current_value: number;
   owner_user_id: string | null;
   last_updated: string;
+  timeframe: string | null;
+  period_start_date: string | null;
 }
 
 interface KpiHistoryRow {
@@ -238,6 +240,8 @@ function mapKpiRow(row: KpiRow): KPI {
     currentValue: row.current_value,
     ownerUserId: row.owner_user_id ?? undefined,
     lastUpdated: row.last_updated,
+    timeframe: (row.timeframe as KPI['timeframe']) ?? undefined,
+    periodStartDate: row.period_start_date ?? undefined,
   };
 }
 
@@ -410,6 +414,43 @@ async function syncKpiHistory(prev: KPIHistoryEntry[], next: KPIHistoryEntry[]) 
   }
 }
 
+// Utility function to check if a KPI period has ended
+function hasPeriodEnded(kpi: KPI): boolean {
+  if (!kpi.timeframe || !kpi.periodStartDate) return false;
+  
+  const now = new Date();
+  const periodStart = new Date(kpi.periodStartDate);
+  
+  switch (kpi.timeframe) {
+    case 'Daily': {
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const startDay = new Date(periodStart.getFullYear(), periodStart.getMonth(), periodStart.getDate());
+      return today > startDay;
+    }
+    case 'Weekly': {
+      const weekStart = new Date(periodStart);
+      weekStart.setDate(weekStart.getDate() - weekStart.getDay()); // Start of week (Sunday)
+      const currentWeekStart = new Date(now);
+      currentWeekStart.setDate(currentWeekStart.getDate() - currentWeekStart.getDay());
+      return currentWeekStart > weekStart;
+    }
+    case 'Monthly': {
+      return now.getMonth() !== periodStart.getMonth() || now.getFullYear() !== periodStart.getFullYear();
+    }
+    case 'Quarterly': {
+      const startQuarter = Math.floor(periodStart.getMonth() / 3);
+      const currentQuarter = Math.floor(now.getMonth() / 3);
+      return now.getFullYear() > periodStart.getFullYear() || 
+             (now.getFullYear() === periodStart.getFullYear() && currentQuarter > startQuarter);
+    }
+    case 'Annually': {
+      return now.getFullYear() > periodStart.getFullYear();
+    }
+    default:
+      return false;
+  }
+}
+
 async function hydrateFromSupabase() {
   if (!SUPABASE_CONFIGURED) return null;
 
@@ -489,7 +530,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const refreshFromRemote = async () => {
+  const refreshFromRemote = useCallback(async () => {
     if (!SUPABASE_CONFIGURED) return;
     const remote = await hydrateFromSupabase();
     if (!remote) return;
@@ -502,7 +543,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       saveState(next);
       return next;
     });
-  };
+  }, []);
 
   useEffect(() => {
     if (!SUPABASE_CONFIGURED) return;
@@ -519,6 +560,211 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
     };
   }, [initializing, user?.id]);
+
+  // Real-time subscription for tasks
+  useEffect(() => {
+    if (!SUPABASE_CONFIGURED) return;
+    if (initializing) return;
+    if (!user) return;
+
+    const channel = supabase
+      .channel('tasks-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'tasks',
+        },
+        (payload) => {
+          console.log('[Supabase] Task change detected:', payload.eventType);
+          // Refresh tasks when changes occur
+          void refreshFromRemote();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [initializing, user?.id, refreshFromRemote]);
+
+  // Real-time subscription for notifications
+  useEffect(() => {
+    if (!SUPABASE_CONFIGURED) return;
+    if (initializing) return;
+    if (!user) return;
+
+    const channel = supabase
+      .channel('notifications-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload) => {
+          console.log('[Supabase] Notification change detected:', payload.eventType);
+          // Refresh notifications when changes occur
+          void refreshFromRemote();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [initializing, user?.id, refreshFromRemote]);
+
+  // Polling fallback: refresh every 30 seconds
+  useEffect(() => {
+    if (!SUPABASE_CONFIGURED) return;
+    if (initializing) return;
+    if (!user) return;
+
+    const interval = setInterval(() => {
+      void refreshFromRemote();
+    }, 30000); // Refresh every 30 seconds
+
+    return () => clearInterval(interval);
+  }, [initializing, user?.id, refreshFromRemote]);
+
+  // Check and reset KPIs when periods end
+  useEffect(() => {
+    if (initializing) return;
+    
+    const checkAndResetKPIs = () => {
+      setLocalState(prev => {
+        const kpisToReset: KPI[] = [];
+        const updatedKpis = prev.kpis.map(kpi => {
+          if (hasPeriodEnded(kpi)) {
+            kpisToReset.push({
+              ...kpi,
+              currentValue: 0,
+              periodStartDate: new Date().toISOString(),
+              lastUpdated: new Date().toISOString(),
+            });
+            
+            return {
+              ...kpi,
+              currentValue: 0,
+              periodStartDate: new Date().toISOString(),
+              lastUpdated: new Date().toISOString(),
+            };
+          }
+          return kpi;
+        });
+
+        if (kpisToReset.length === 0) return prev;
+
+        // Add notifications for all employees in affected departments
+        const newNotifications: Notification[] = [];
+        const newActivities: ActivityLog[] = [];
+        
+        kpisToReset.forEach(kpi => {
+          const deptUsers = prev.users.filter(u => 
+            u.departmentCode === kpi.departmentCode && u.role !== 'admin'
+          );
+          
+          // Get the original value before reset (from the original kpi, not the reset one)
+          const originalKpi = prev.kpis.find(k => k.id === kpi.id);
+          const oldValue = originalKpi?.currentValue ?? 0;
+          const progressPercent = kpi.target > 0 ? (oldValue / kpi.target) * 100 : 0;
+          
+          // Professional status message based on performance
+          let statusMessage = '';
+          if (progressPercent >= 100) {
+            statusMessage = `Outstanding performance! You exceeded the target by ${Math.round(progressPercent - 100)}%.`;
+          } else if (progressPercent >= 80) {
+            statusMessage = `Excellent work! You achieved ${Math.round(progressPercent)}% of the target.`;
+          } else if (progressPercent >= 50) {
+            statusMessage = `Good progress! You achieved ${Math.round(progressPercent)}% of the target. Keep up the momentum!`;
+          } else {
+            statusMessage = `You achieved ${Math.round(progressPercent)}% of the target. Let's work together to improve this in the next period.`;
+          }
+          
+          // Format timeframe for display
+          const timeframeDisplay = kpi.timeframe === 'Annually' ? 'annual' : 
+                                   kpi.timeframe === 'Quarterly' ? 'quarterly' :
+                                   kpi.timeframe === 'Monthly' ? 'monthly' :
+                                   kpi.timeframe === 'Weekly' ? 'weekly' : 'daily';
+          
+          deptUsers.forEach(deptUser => {
+            newNotifications.push({
+              id: `notif_${Math.random().toString(36).slice(2, 9)}`,
+              userId: deptUser.id,
+              type: 'kpi_reset',
+              title: `KPI Period Ended: ${kpi.name}`,
+              message: `The ${timeframeDisplay} period for "${kpi.name}" has ended. The KPI has been reset to begin a new tracking period. ${statusMessage} Previous period result: ${oldValue} ${kpi.unit} out of ${kpi.target} ${kpi.unit} target.`,
+              timestamp: new Date().toISOString(),
+              isRead: false,
+              relatedKpiId: kpi.id,
+            });
+          });
+
+          // Log activity
+          newActivities.push({
+            id: `act_${Math.random().toString(36).slice(2, 9)}`,
+            departmentCode: kpi.departmentCode,
+            userId: user?.id || 'system',
+            type: 'kpi_updated',
+            timestamp: new Date().toISOString(),
+            description: `KPI "${kpi.name}" ${timeframeDisplay} period ended. Reset to 0. Previous period result: ${oldValue} ${kpi.unit} (${Math.round(progressPercent)}% of target)`,
+            relatedKpiId: kpi.id,
+          });
+        });
+
+        const updated = {
+          ...prev,
+          kpis: updatedKpis,
+          notifications: [...prev.notifications, ...newNotifications],
+          activities: [...prev.activities, ...newActivities],
+        };
+        
+        saveState(updated);
+        
+        // Sync to Supabase if configured
+        if (SUPABASE_CONFIGURED) {
+          // Sync updated KPIs
+          void Promise.all(
+            kpisToReset.map(kpi => 
+              callAdminKpi('PATCH', `/api/admin/kpis/${kpi.id}`, {
+                name: kpi.name,
+                description: kpi.description ?? null,
+                unit: kpi.unit,
+                target: kpi.target,
+                currentValue: 0,
+                ownerUserId: kpi.ownerUserId ?? null,
+                lastUpdated: kpi.lastUpdated,
+                timeframe: kpi.timeframe ?? null,
+                periodStartDate: kpi.periodStartDate ?? null,
+              })
+            )
+          ).then(() => {
+            // Sync new notifications
+            if (newNotifications.length > 0) {
+              void supabase
+                .from('notifications')
+                .upsert(newNotifications.map(mapNotificationToRow))
+                .then(({ error }) => {
+                  if (error) console.warn('[Supabase] Failed to sync KPI reset notifications', error);
+                });
+            }
+          });
+        }
+        
+        return updated;
+      });
+    };
+
+    // Check immediately and then every hour
+    checkAndResetKPIs();
+    const interval = setInterval(checkAndResetKPIs, 60 * 60 * 1000); // Check every hour
+    
+    return () => clearInterval(interval);
+  }, [initializing]);
 
   const value = useMemo<DataContextValue>(() => ({
     state,
@@ -581,6 +827,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             currentValue: kpi.currentValue,
             ownerUserId: kpi.ownerUserId ?? null,
             lastUpdated: kpi.lastUpdated,
+            timeframe: kpi.timeframe ?? null,
+            periodStartDate: kpi.periodStartDate ?? null,
           }).then(() => refreshFromRemote());
         }
         return updated;
@@ -603,6 +851,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             currentValue: kpi.currentValue,
             ownerUserId: kpi.ownerUserId ?? null,
             lastUpdated: kpi.lastUpdated,
+            timeframe: kpi.timeframe ?? null,
+            periodStartDate: kpi.periodStartDate ?? null,
           }).then(() => {
             console.log('[DataContext] addKpi -> refreshFromRemote');
             return refreshFromRemote();

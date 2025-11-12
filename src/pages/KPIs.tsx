@@ -200,6 +200,7 @@ export function KPIsPage() {
                         whileTap={{ scale: 0.9 }}
                         className="p-2 hover:bg-red-100 rounded-lg transition-colors text-red-600 opacity-0 group-hover:opacity-100"
                         onClick={() => handleDeleteKpi(k.id)}
+                        title="Delete KPI"
                       >
                         <Trash2 size={16} />
                       </motion.button>
@@ -294,12 +295,22 @@ export function KPIsPage() {
                         <span className={`px-3 py-1.5 rounded-lg text-xs font-bold border-2 ${statusColor(p)} shadow-sm`}>
                           {p >= 80 ? '🎯 Excellent' : p >= 50 ? '📈 On Track' : '⚠️ Needs Focus'}
                         </span>
+                        {k.timeframe && (
+                          <span className="px-2 py-1 rounded-md text-xs font-medium bg-purple-100 text-purple-700 border border-purple-200">
+                            {k.timeframe}
+                          </span>
+                        )}
                       </div>
                       <div className="text-right">
                         <div className="text-xs text-gray-500">Last updated</div>
                         <div className="text-xs font-semibold text-gray-700">
                           {new Date(k.lastUpdated).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' })}
                         </div>
+                        {k.periodStartDate && (
+                          <div className="text-xs text-gray-400 mt-1">
+                            Period: {new Date(k.periodStartDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -417,6 +428,7 @@ export function KPIsPage() {
                         <button
                           className="p-2 hover:bg-red-100 rounded-lg transition-colors text-red-600"
                           onClick={() => handleDeleteKpi(k.id)}
+                          title="Delete KPI"
                         >
                           <Trash2 size={16} />
                         </button>

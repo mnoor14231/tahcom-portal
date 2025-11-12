@@ -47,8 +47,8 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const addNotification = (notification: Omit<Notification, 'id' | 'timestamp' | 'isRead'>) => {
     const newNotification = persistNotification(notification);
 
-    // Show popup for task assignment notifications only if it's for the current user
-    if (notification.type === 'task_assigned' && notification.userId === user?.id) {
+    // Show popup for task assignment and KPI reset notifications if it's for the current user
+    if ((notification.type === 'task_assigned' || notification.type === 'kpi_reset') && notification.userId === user?.id) {
       setCurrentNotification(newNotification);
       setShowPopup(true);
     }
@@ -175,6 +175,8 @@ function NotificationPopup({ notification, onClose, onMarkAsRead }: Notification
         return '✅';
       case 'task_rejected':
         return '❌';
+      case 'kpi_reset':
+        return '🔄';
       default:
         return '🔔';
     }
@@ -192,6 +194,8 @@ function NotificationPopup({ notification, onClose, onMarkAsRead }: Notification
         return 'from-green-500 to-green-600';
       case 'task_rejected':
         return 'from-red-500 to-red-600';
+      case 'kpi_reset':
+        return 'from-purple-500 to-purple-600';
       default:
         return 'from-gray-500 to-gray-600';
     }
