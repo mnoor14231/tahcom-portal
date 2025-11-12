@@ -2278,9 +2278,21 @@ useEffect(() => {
                     className="overflow-hidden"
                   >
                       <div className="p-4 pt-2 bg-gradient-to-br from-blue-50/50 to-cyan-50/50 rounded-b-xl">
-                        <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-line" dir="auto">
-                          {entry.useCases.join('\n\n')}
-                        </p>
+                        <ul className="space-y-2.5" dir="auto">
+                          {entry.useCases.map((useCase, i) => (
+                            <motion.li
+                              key={i}
+                              initial={{ opacity: 0, x: -10 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              transition={{ delay: i * 0.03 }}
+                              className="text-sm text-gray-700 flex items-start gap-3 group/item"
+                              style={{ lineHeight: '1.6' }}
+                            >
+                              <div className="mt-1.5 flex-shrink-0 w-2 h-2 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 group-hover/item:scale-125 transition-transform"></div>
+                              <span className="flex-1" dir="auto">{useCase}</span>
+                            </motion.li>
+                          ))}
+                        </ul>
                       </div>
                   </motion.div>
                 )}
@@ -2332,9 +2344,21 @@ useEffect(() => {
                     className="overflow-hidden"
                   >
                       <div className="p-4 pt-2 bg-gradient-to-br from-emerald-50/50 to-teal-50/50 rounded-b-xl">
-                        <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-line" dir="auto">
-                          {entry.benefits.join('\n\n')}
-                        </p>
+                        <ul className="space-y-2.5" dir="auto">
+                          {entry.benefits.map((benefit, i) => (
+                            <motion.li
+                              key={i}
+                              initial={{ opacity: 0, x: -10 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              transition={{ delay: i * 0.03 }}
+                              className="text-sm text-gray-700 flex items-start gap-3 group/item"
+                              style={{ lineHeight: '1.6' }}
+                            >
+                              <div className="mt-1.5 flex-shrink-0 w-2 h-2 rounded-full bg-gradient-to-br from-emerald-500 to-teal-500 group-hover/item:scale-125 transition-transform"></div>
+                              <span className="flex-1" dir="auto">{benefit}</span>
+                            </motion.li>
+                          ))}
+                        </ul>
                       </div>
                   </motion.div>
                 )}
