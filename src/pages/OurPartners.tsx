@@ -8,11 +8,12 @@ import {
   Award, Target, Database, Cloud,
   Zap, CheckCircle2, AlertCircle, Info, HelpCircle, ChevronRight, ChevronDown, Star,
   Lightbulb, Rocket, Layers, Copy,
-  Lock, Unlock, KeyRound, ClipboardList, ClipboardCheck, History, ListChecks, ChevronLeft
+  Lock, Unlock, KeyRound, ClipboardList, ClipboardCheck, History, ListChecks, ChevronLeft, ArrowLeft, LogIn
 } from 'lucide-react';
 import { PWAInstallPrompt } from '../components/PWAInstallPrompt';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title, PointElement, LineElement, Filler } from 'chart.js';
 import { Bar, Line } from 'react-chartjs-2';
+import { useNavigate } from 'react-router-dom';
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title, PointElement, LineElement, Filler);
 
@@ -325,6 +326,7 @@ const FIELD_HINTS: Record<string, string> = {
 };
 
 export function OurPartnersPage() {
+  const navigate = useNavigate();
   const [showEntry, setShowEntry] = useState(false);
   const [spreadsheetId, setSpreadsheetId] = useState('');
   const [sheetName, setSheetName] = useState('');
@@ -2952,11 +2954,22 @@ const removeCacheKey = (key: string) => {
       <div className="container-wide mx-auto px-4 py-8">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-          <div>
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-[#8B4513] via-[#FF8C00] to-[#FFA500] bg-clip-text text-transparent mb-2">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => navigate('/login')}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-gray-300 hover:bg-gray-50 hover:border-[#8B4513] transition-all shadow-sm text-gray-700 hover:text-[#8B4513] font-medium"
+              title="Return to Login"
+            >
+              <ArrowLeft size={18} />
+              <span className="hidden sm:inline">Return to Login</span>
+              <LogIn size={18} className="sm:hidden" />
+            </button>
+            <div>
+              <h1 className="text-4xl font-bold bg-gradient-to-r from-[#8B4513] via-[#FF8C00] to-[#FFA500] bg-clip-text text-transparent mb-2">
                 Our Partners & Solutions
               </h1>
-            <p className="text-gray-600">Comprehensive analytics and management dashboard</p>
+              <p className="text-gray-600">Comprehensive analytics and management dashboard</p>
+            </div>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
             {availableSheets.length > 0 && (

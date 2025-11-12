@@ -78,33 +78,24 @@ export function LoginPage() {
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-orange-50 via-amber-50 to-yellow-50">
-      {/* Animated Background Elements */}
+      {/* Animated Background Elements - Reduced */}
       {!shouldReduceMotion && (
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
           <motion.div
             animate={{
-              scale: [1, 1.12, 1],
-              rotate: [0, 60, 0],
+              scale: [1, 1.05, 1],
+              rotate: [0, 30, 0],
             }}
-            transition={{ duration: 24, repeat: Infinity, ease: "linear" }}
-            className="absolute -top-32 -left-28 h-80 w-80 rounded-full bg-orange-200/70 blur-3xl md:h-96 md:w-96"
+            transition={{ duration: 40, repeat: Infinity, ease: "linear" }}
+            className="absolute -top-32 -left-28 h-80 w-80 rounded-full bg-orange-200/50 blur-3xl md:h-96 md:w-96"
           />
           <motion.div
             animate={{
-              scale: [1.1, 0.95, 1.1],
-              rotate: [60, 0, 60],
+              scale: [1.05, 0.98, 1.05],
+              rotate: [30, 0, 30],
             }}
-            transition={{ duration: 28, repeat: Infinity, ease: "linear" }}
-            className="absolute -bottom-32 -right-24 h-72 w-72 rounded-full bg-orange-200/60 blur-3xl md:h-96 md:w-96"
-          />
-          <motion.div
-            animate={{
-              scale: [1, 1.18, 1],
-              x: [0, 60, 0],
-              y: [0, -60, 0],
-            }}
-            transition={{ duration: 32, repeat: Infinity, ease: "linear" }}
-            className="absolute top-1/2 left-1/2 h-72 w-72 -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-200/50 blur-3xl md:h-96 md:w-96"
+            transition={{ duration: 45, repeat: Infinity, ease: "linear" }}
+            className="absolute -bottom-32 -right-24 h-72 w-72 rounded-full bg-orange-200/40 blur-3xl md:h-96 md:w-96"
           />
         </div>
       )}
@@ -113,9 +104,9 @@ export function LoginPage() {
       <div className="relative flex min-h-screen items-center justify-center px-3 py-10 sm:px-4">
         <AnimatePresence>
           <motion.div
-            initial={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.95, y: 18 }}
+            initial={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.98, y: 8 }}
             animate={shouldReduceMotion ? { opacity: 1 } : { opacity: 1, scale: 1, y: 0 }}
-            transition={{ duration: shouldReduceMotion ? 0.35 : 0.55, ease: 'easeOut' }}
+            transition={{ duration: shouldReduceMotion ? 0.2 : 0.3, ease: 'easeOut' }}
             className="w-full max-w-md"
           >
           {/* Card with glassmorphism */}
@@ -133,14 +124,14 @@ export function LoginPage() {
                 {/* Logo and Header */}
                 <div className="flex flex-col items-center gap-4 mb-8">
                   <motion.div
-                    initial={shouldReduceMotion ? { opacity: 0 } : { scale: 0.9, opacity: 0 }}
+                    initial={shouldReduceMotion ? { opacity: 0 } : { scale: 0.95, opacity: 0 }}
                     animate={shouldReduceMotion ? { opacity: 1 } : { scale: 1, opacity: 1 }}
-                    transition={{ duration: 0.45, ease: 'easeOut' }}
+                    transition={{ duration: 0.25, ease: 'easeOut' }}
                     className="relative"
                   >
-                    {/* Glow effect */}
+                    {/* Glow effect - reduced */}
                     {!isCompact && (
-                      <div className="absolute inset-0 rounded-xl bg-gradient-brand blur-lg opacity-40"></div>
+                      <div className="absolute inset-0 rounded-xl bg-gradient-brand blur-lg opacity-20"></div>
                     )}
                     
                     <img 
@@ -149,24 +140,13 @@ export function LoginPage() {
                       loading="lazy"
                       className="relative h-16 w-16 rounded-xl shadow-xl ring-4 ring-white/60 sm:h-20 sm:w-20"
                     />
-                    
-                    {/* Sparkle effect */}
-                    {!shouldReduceMotion && (
-                      <motion.div
-                        animate={{ rotate: 360 }}
-                        transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
-                        className="absolute -top-2 -right-2"
-                      >
-                        <Sparkles className="text-orange-500" size={18} />
-                      </motion.div>
-                    )}
                   </motion.div>
                   
                   <div className="text-center space-y-2">
                     <motion.h1 
-                      initial={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: -12 }}
+                      initial={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: -6 }}
                       animate={shouldReduceMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
-                      transition={{ delay: 0.1, duration: 0.5, ease: 'easeOut' }}
+                      transition={{ delay: 0.05, duration: 0.3, ease: 'easeOut' }}
                       className="text-2xl font-bold text-brand-1 sm:text-3xl"
                     >
                       Tahcom Portal
@@ -174,7 +154,7 @@ export function LoginPage() {
                     <motion.p 
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
-                      transition={{ delay: 0.4 }}
+                      transition={{ delay: 0.15 }}
                       className="text-sm font-medium text-gray-600"
                     >
                       Welcome back! Please sign in to continue
@@ -186,9 +166,9 @@ export function LoginPage() {
                 <form className="space-y-6" onSubmit={onSubmit}>
                   {/* Username Field */}
                   <motion.div
-                    initial={{ opacity: 0, x: -30 }}
+                    initial={{ opacity: 0, x: -10 }}
                     animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 0.45, duration: 0.4 }}
+                    transition={{ delay: 0.2, duration: 0.25 }}
                     className="relative"
                   >
                     <div className={`relative transition-all duration-300 ${
@@ -236,9 +216,9 @@ export function LoginPage() {
 
                   {/* Password Field */}
                   <motion.div
-                    initial={{ opacity: 0, x: -30 }}
+                    initial={{ opacity: 0, x: -10 }}
                     animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 0.55, duration: 0.4 }}
+                    transition={{ delay: 0.25, duration: 0.25 }}
                     className="relative"
                   >
                     <div className={`relative transition-all duration-300 ${
@@ -312,31 +292,16 @@ export function LoginPage() {
 
                   {/* Submit Button */}
                   <motion.button
-                    initial={{ opacity: 0, y: 20 }}
+                    initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.65, duration: 0.4 }}
+                    transition={{ delay: 0.3, duration: 0.25 }}
                     disabled={loading}
-                    whileHover={{ scale: loading ? 1 : 1.02, y: loading ? 0 : -2 }}
-                    whileTap={{ scale: loading ? 1 : 0.98 }}
+                    whileHover={{ scale: loading ? 1 : 1.01 }}
+                    whileTap={{ scale: loading ? 1 : 0.99 }}
                     className="group relative w-full rounded-xl px-6 py-3 font-semibold text-white shadow-lg transition disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {/* Gradient Background */}
-                    <div className="absolute inset-0 bg-gradient-brand-full transition-all duration-300 group-hover:scale-105"></div>
-                    
-                    {/* Shine Effect */}
-                    {!shouldReduceMotion && (
-                      <motion.div
-                        animate={{
-                          x: ['-120%', '220%'],
-                        }}
-                        transition={{
-                          duration: 4,
-                          repeat: Infinity,
-                          ease: 'linear'
-                        }}
-                        className="absolute inset-0 skew-x-12 bg-gradient-to-r from-transparent via-white/20 to-transparent"
-                      />
-                    )}
+                    <div className="absolute inset-0 bg-gradient-brand-full transition-all duration-200 group-hover:opacity-90"></div>
                     
                     {/* Button Content */}
                     <span className="relative flex items-center justify-center gap-3">
@@ -361,9 +326,9 @@ export function LoginPage() {
 
                 {/* Quick Link to Partners */}
                 <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.75 }}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.35 }}
                   className="mt-6"
                 >
                   <button
@@ -380,29 +345,14 @@ export function LoginPage() {
                 <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
-                  transition={{ delay: 0.8 }}
+                  transition={{ delay: 0.4 }}
                   className="mt-7 border-t border-gray-200 pt-6"
                 >
                   <div className="text-center space-y-3">
-                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Demo Credentials</p>
-                    <div className="flex flex-wrap gap-2 justify-center">
-                      {['admin', 'BDmanager', 'BDmember1', 'BDmember2'].map((acc, idx) => (
-                        <motion.button
-                          key={acc}
-                          initial={{ opacity: 0, scale: 0.8 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          transition={{ delay: 0.9 + idx * 0.1 }}
-                          whileHover={{ scale: 1.05, y: -2 }}
-                          whileTap={{ scale: 0.95 }}
-                          onClick={() => setUsername(acc)}
-                          className="px-3 py-1.5 bg-gradient-to-r from-orange-100 to-amber-100 hover:from-orange-200 hover:to-amber-200 text-brand-1 text-xs font-medium rounded-lg transition-all duration-200 shadow-sm hover:shadow-md"
-                        >
-                          {acc}
-                        </motion.button>
-                      ))}
-                    </div>
+                    
+                   
                     <p className="text-xs text-gray-500">
-                      Password: <span className="font-mono font-semibold text-brand-1">123</span>
+                      Default Password: <span className="font-mono font-semibold text-brand-1">1234</span>
                     </p>
                   </div>
                 </motion.div>
