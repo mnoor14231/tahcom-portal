@@ -6,15 +6,34 @@ import { ManageDepartmentModal } from '../components/modals/ManageDepartmentModa
 import { motion, AnimatePresence } from 'framer-motion';
 import { Building2, Users, Eye, CheckCircle, Archive, Trash2, AlertCircle } from 'lucide-react';
 import type { Department } from '../types.ts';
+import { supabase } from '../lib/supabaseClient.ts';
+import { buildAdminApiUrl } from '../utils/apiBase.ts';
+
+const DEFAULT_MANAGER_PASSWORD = '1234';
 
 export function DepartmentsPage() {
   const { user } = useAuth();
-  const { state, setPreviewDepartment, setState } = useData();
+  const { state, setPreviewDepartment, setState, refreshDirectory } = useData();
   const isAdmin = hasRole(user, ['admin']);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isManageModalOpen, setIsManageModalOpen] = useState(false);
   const [selectedDepartment, setSelectedDepartment] = useState<Department | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+ 
+  async function getAccessToken() {
+    let { data, error } = await supabase.auth.getSession();
+    let token = data.session?.access_token;
+
+    if (!token || error) {
+      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+      if (refreshError || !refreshData.session?.access_token) {
+        throw new Error('Session expired. Please sign in again.');
+      }
+      token = refreshData.session.access_token;
+    }
+
+    return token;
+  }
 
   if (!isAdmin) return <div className="text-sm text-gray-600">Admins only.</div>;
 
@@ -36,43 +55,94 @@ export function DepartmentsPage() {
     setIsManageModalOpen(true);
   }
 
-  function handleAssignManager(departmentId: string, managerUserId: string) {
+  async function handleAssignManager(departmentId: string, managerUserId: string) {
+    const department = state.departments.find(d => d.id === departmentId);
+    if (!department) return;
+
     setState(prev => ({
       ...prev,
       departments: prev.departments.map(d =>
         d.id === departmentId ? { ...d, managerUserId } : d
       ),
       users: prev.users.map(u =>
-        u.id === managerUserId ? { ...u, role: 'manager' as const } : u
+        u.id === managerUserId ? { ...u, role: 'manager' as const, departmentCode: department.code } : u
       )
     }));
     setIsManageModalOpen(false);
+
+    try {
+      const accessToken = await getAccessToken();
+      const response = await fetch(buildAdminApiUrl(`/api/admin/users/${managerUserId}`), {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          role: 'manager',
+          departmentCode: department.code,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'Failed to promote manager');
+      }
+
+      await refreshDirectory();
+    } catch (error) {
+      console.error('[DepartmentsPage] Failed to assign manager', error);
+      await refreshDirectory();
+    }
   }
 
-  function handleCreateNewManager(departmentId: string, managerName: string, username: string) {
-    const newManagerId = `u_${Math.random().toString(36).slice(2, 9)}`;
+  async function handleCreateNewManager(departmentId: string, managerName: string, username: string): Promise<{ ok: boolean; error?: string }> {
     const department = state.departments.find(d => d.id === departmentId);
-    
-    if (!department) return;
+    if (!department) {
+      return { ok: false, error: 'Department not found.' };
+    }
 
-    const newManager = {
-      id: newManagerId,
-      username,
-      displayName: managerName,
-      role: 'manager' as const,
-      departmentCode: department.code,
-      status: 'active' as const,
-      requirePasswordChange: true, // Flag to force password change on first login
-    };
+    try {
+      const accessToken = await getAccessToken();
+      const response = await fetch(buildAdminApiUrl('/api/admin/users'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          username,
+          displayName: managerName,
+          role: 'manager',
+          departmentCode: department.code,
+          temporaryPassword: DEFAULT_MANAGER_PASSWORD,
+          canCreateTasks: true,
+        }),
+      });
 
-    setState(prev => ({
-      ...prev,
-      users: [...prev.users, newManager],
-      departments: prev.departments.map(d =>
-        d.id === departmentId ? { ...d, managerUserId: newManagerId } : d
-      )
-    }));
-    setIsManageModalOpen(false);
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'Failed to create manager');
+      }
+
+      const payload = await response.json();
+      const createdUser = payload.user;
+
+      setState(prev => ({
+        ...prev,
+        users: [...prev.users, createdUser],
+        departments: prev.departments.map(d =>
+          d.id === departmentId ? { ...d, managerUserId: createdUser.id } : d
+        )
+      }));
+      await refreshDirectory();
+      return { ok: true };
+    } catch (error) {
+      console.error('[DepartmentsPage] Failed to create manager', error);
+      await refreshDirectory();
+      const message = error instanceof Error ? error.message : 'Failed to create manager';
+      return { ok: false, error: message };
+    }
   }
 
   function handleDeleteDepartment(deptId: string) {
@@ -98,6 +168,14 @@ export function DepartmentsPage() {
     if (state.previewDepartmentCode === dept.code) {
       setPreviewDepartment(state.departments[0]?.code || '');
     }
+
+    void (async () => {
+      try {
+        await refreshDirectory();
+      } catch (error) {
+        console.error('[DepartmentsPage] Failed to refresh after delete', error);
+      }
+    })();
   }
 
   return (
@@ -278,7 +356,7 @@ export function DepartmentsPage() {
                       Cancel
                     </button>
                     <button
-                      onClick={() => handleDeleteDepartment(deleteConfirm)}
+                      onClick={() => void handleDeleteDepartment(deleteConfirm)}
                       className="flex-1 btn bg-red-600 text-white hover:bg-red-700 py-2"
                     >
                       Delete Department

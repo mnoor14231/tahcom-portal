@@ -10,6 +10,7 @@ export interface User {
   canCreateTasks?: boolean;
   requirePasswordChange?: boolean;
   password?: string; // For demo purposes, stored in state
+  specialty?: string;
 }
 
 export interface Department {

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, UserCog, Users, Crown, CheckCircle2, AlertCircle, UserPlus, Building2, Info } from 'lucide-react';
+import { X, UserCog, Users, Crown, CheckCircle2, AlertCircle, UserPlus, Info } from 'lucide-react';
 import type { Department, User } from '../../types.ts';
 
 interface ManageDepartmentModalProps {
@@ -9,7 +9,7 @@ interface ManageDepartmentModalProps {
   department: Department | null;
   members: User[];
   onAssignManager: (departmentId: string, managerUserId: string) => void;
-  onCreateNewManager: (departmentId: string, managerName: string, username: string) => void;
+  onCreateNewManager: (departmentId: string, managerName: string, username: string) => Promise<{ ok: boolean; error?: string }>;
 }
 
 export function ManageDepartmentModal({ 
@@ -28,32 +28,57 @@ export function ManageDepartmentModal({
   const [usernameFocused, setUsernameFocused] = useState(false);
   const [nameTouched, setNameTouched] = useState(false);
   const [usernameTouched, setUsernameTouched] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!department) return null;
 
   const currentManager = members.find(m => m.id === department.managerUserId);
   // Show all available members (filtering by department can be removed as members prop contains relevant users)
   const availableMembers = members;
-  
-  const isNameValid = newManagerName.trim().length >= 2;
-  const isUsernameValid = newManagerUsername.trim().length >= 3 && /^[a-zA-Z0-9_]+$/.test(newManagerUsername.trim());
-  const isFormValid = selectedMode === 'existing' 
-    ? selectedUserId !== '' 
+ 
+  const normalizedManagerName = newManagerName.trim();
+  const cleanedManagerUsername = newManagerUsername.replace(/\s+/g, '').toLowerCase();
+  const plainUsernamePattern = /^[a-z0-9._-]+$/;
+  const emailPattern = /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/;
+
+  const isNameValid = normalizedManagerName.length >= 2;
+  const isUsernameValid = cleanedManagerUsername.length >= 3 && (
+    plainUsernamePattern.test(cleanedManagerUsername) ||
+    emailPattern.test(cleanedManagerUsername)
+  );
+
+  const isFormValid = selectedMode === 'existing'
+    ? selectedUserId !== ''
     : isNameValid && isUsernameValid;
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     
     if (!department || !isFormValid) return;
     
+    setSubmitError(null);
+
     if (selectedMode === 'existing' && selectedUserId) {
       onAssignManager(department.id, selectedUserId);
       resetForm();
       onClose();
     } else if (selectedMode === 'new' && isNameValid && isUsernameValid) {
-      onCreateNewManager(department.id, newManagerName.trim(), newManagerUsername.trim());
-      resetForm();
-      onClose();
+      try {
+        setIsSubmitting(true);
+        setSubmitError(null);
+        const result = await onCreateNewManager(department.id, normalizedManagerName, cleanedManagerUsername);
+        if (result.ok) {
+          resetForm();
+          onClose();
+        } else {
+          setSubmitError(result.error ?? 'Failed to create the manager account.');
+        }
+      } catch (err) {
+        setSubmitError('Unexpected error while creating the manager.');
+      } finally {
+        setIsSubmitting(false);
+      }
     }
   }
 
@@ -63,6 +88,8 @@ export function ManageDepartmentModal({
     setSelectedUserId('');
     setNameTouched(false);
     setUsernameTouched(false);
+    setSubmitError(null);
+    setIsSubmitting(false);
   }
 
   function handleClose() {
@@ -353,7 +380,7 @@ export function ManageDepartmentModal({
                                 type="text"
                                 id="manager-username"
                                 value={newManagerUsername}
-                                onChange={(e) => setNewManagerUsername(e.target.value.toLowerCase())}
+                                onChange={(e) => setNewManagerUsername(e.target.value.replace(/\s+/g, '').toLowerCase())}
                                 onFocus={() => setUsernameFocused(true)}
                                 onBlur={() => {
                                   setUsernameFocused(false);
@@ -401,15 +428,19 @@ export function ManageDepartmentModal({
                                 </motion.div>
                               )}
                             </div>
-                            {usernameTouched && !isUsernameValid && (
+                            {usernameTouched && !isUsernameValid ? (
                               <motion.p
                                 initial={{ opacity: 0, y: -5 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 className="text-xs text-red-600 mt-2 flex items-center gap-1"
                               >
                                 <AlertCircle size={12} />
-                                Username must be at least 3 characters (letters, numbers, underscores only)
+                                Use at least 3 characters. Example: <span className="font-mono">israa</span> or <span className="font-mono">israa@tahcom.com</span>.
                               </motion.p>
+                            ) : (
+                              <p className="text-xs text-gray-500 mt-2">
+                                You can enter a username (letters, numbers, dot, dash, underscore) or a full email address. If you only type a username we’ll append the company email domain automatically.
+                              </p>
                             )}
                           </div>
 
@@ -434,6 +465,16 @@ export function ManageDepartmentModal({
                     </AnimatePresence>
                   </div>
 
+                  {submitError && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="p-2.5 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700"
+                    >
+                      {submitError}
+                    </motion.div>
+                  )}
+
                   {/* Action Buttons */}
                   <div className="flex gap-2 pt-1">
                     <motion.button
@@ -447,13 +488,13 @@ export function ManageDepartmentModal({
                     </motion.button>
                     <motion.button
                       type="submit"
-                      disabled={!isFormValid}
-                      whileHover={isFormValid ? { scale: 1.02 } : {}}
-                      whileTap={isFormValid ? { scale: 0.98 } : {}}
+                      disabled={!isFormValid || isSubmitting}
+                      whileHover={isFormValid && !isSubmitting ? { scale: 1.02 } : {}}
+                      whileTap={isFormValid && !isSubmitting ? { scale: 0.98 } : {}}
                       className={`
                         flex-1 px-4 py-2.5 rounded-lg font-bold transition-all duration-200
                         flex items-center justify-center gap-2 shadow-lg text-sm
-                        ${isFormValid
+                        ${isFormValid && !isSubmitting
                           ? 'bg-gradient-to-r from-orange-500 via-orange-600 to-amber-600 hover:shadow-xl hover:shadow-orange-200 text-white'
                           : 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none'
                         }
@@ -465,10 +506,17 @@ export function ManageDepartmentModal({
                           Assign Manager
                         </>
                       ) : (
-                        <>
-                          <UserPlus size={18} />
-                          Create & Assign
-                        </>
+                        isSubmitting ? (
+                          <>
+                            <span className="h-3 w-3 rounded-full border-2 border-white/70 border-t-transparent animate-spin" />
+                            Creating...
+                          </>
+                        ) : (
+                          <>
+                            <UserPlus size={18} />
+                            Create & Assign
+                          </>
+                        )
                       )}
                     </motion.button>
                   </div>

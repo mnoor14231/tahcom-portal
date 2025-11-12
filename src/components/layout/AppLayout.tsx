@@ -4,9 +4,10 @@ import { useAuth, hasRole } from '../../context/AuthContext.tsx';
 import { useData } from '../../context/DataContext.tsx';
 import { useNotifications } from '../../context/NotificationContext.tsx';
 import { NotificationPanel } from '../notifications/NotificationPanel.tsx';
-import { ChevronDown, LogOut, Settings, Shield, Users, Home, Gauge, ListChecks, Menu, X, Globe, Building2, Bell, Handshake, Bot } from 'lucide-react';
+import { ChevronDown, LogOut, Settings, Shield, Users, Home, Gauge, ListChecks, Menu, X, Globe, Building2, Bell, Handshake } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext.tsx';
 import { motion, AnimatePresence } from 'framer-motion';
+import { PushNotificationPrompt } from '../notifications/PushNotificationPrompt.tsx';
 
 function cx(...classes: Array<string | false | undefined>) { return classes.filter(Boolean).join(' '); }
 
@@ -32,15 +33,13 @@ export function AppLayout() {
     ...(isAdmin ? [{ to: '/departments', label: 'Departments', icon: <Shield size={18} /> }] : []),
     ...(isManager ? [{ to: '/people', label: 'People', icon: <Users size={18} /> }] : []),
     // Partners page available for all users
-    { to: '/partners', label: 'Partners', icon: <Handshake size={18} /> },
-    // Agents hub
-    { to: '/agents', label: 'Agents', icon: <Bot size={18} /> },
+    { to: '/our-partners', label: 'Partners', icon: <Handshake size={18} /> },
     // Settings page now available for all users (admin, manager, member)
     { to: '/settings', label: 'Settings', icon: <Settings size={18} /> },
   ];
 
-  function handleLogout() {
-    logout();
+  async function handleLogout() {
+    await logout();
     navigate('/login');
   }
 
@@ -264,6 +263,8 @@ export function AppLayout() {
         onMarkAllAsRead={markAllAsRead}
         onRemoveNotification={removeNotification}
       />
+
+      <PushNotificationPrompt />
     </div>
   );
 }

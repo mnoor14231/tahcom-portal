@@ -1,0 +1,38 @@
+BACKEND DEPLOYED SUCCESSFULLY!
+
+Backend URL: https://tahcom-2861ym3o5-muneers-projects-276a49f7.vercel.app
+
+NEXT STEPS:
+
+1. SET GOOGLE SERVICE ACCOUNT ENVIRONMENT VARIABLE:
+   - Go to: https://vercel.com/muneers-projects-276a49f7/tahcom-api/settings/environment-variables
+   - Click "Add New"
+   - Key: GOOGLE_SERVICE_ACCOUNT
+   - Value: Copy the ENTIRE content from server/service-account.json (all on one line)
+   - Environments: Production, Preview
+   - Click "Save"
+   - Then redeploy the backend (or it will auto-redeploy)
+
+2. SHARE SPREADSHEET WITH SERVICE ACCOUNT:
+   - Open: https://docs.google.com/spreadsheets/d/1Oxn5lrydQ_Gt0rYfwwiqrmf3X_jqbhFZwoAZKwzI6d0
+   - Click "Share" button
+   - Add: sheets-writer@gen-lang-client-0250382533.iam.gserviceaccount.com
+   - Give it "Viewer" or "Editor" access
+   - Uncheck "Notify people"
+   - Click "Share"
+
+3. UPDATE FRONTEND ENVIRONMENT VARIABLE (OPTIONAL):
+   - Go to: https://vercel.com/muneers-projects-276a49f7/tahcom-kpi-portal/settings/environment-variables
+   - Add or update: VITE_API_BASE_URL
+   - Value: https://tahcom-2861ym3o5-muneers-projects-276a49f7.vercel.app/api/partners
+   - Environments: Production, Preview, Development
+   - Redeploy frontend after setting
+
+4. TEST THE CONNECTION:
+   - Visit: https://tahcom-2861ym3o5-muneers-projects-276a49f7.vercel.app/health
+   - Should return: {"ok":true,...}
+   - Visit: https://tahcom-2861ym3o5-muneers-projects-276a49f7.vercel.app/api/partners/diagnose
+   - Should show Google Sheets status
+   - Visit: https://tahcom-kpi-portal.vercel.app/our-partners
+   - Should load data from Google Sheets!
+

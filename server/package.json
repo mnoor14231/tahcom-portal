@@ -10,6 +10,7 @@
     "@anthropic-ai/sdk": "^0.68.0",
     "@azure/msal-node": "^2.16.1",
     "@microsoft/microsoft-graph-client": "^3.0.7",
+    "@supabase/supabase-js": "^2.81.0",
     "axios": "^1.13.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
@@ -17,6 +18,8 @@
     "google-auth-library": "^10.5.0",
     "googleapis": "^164.1.0",
     "multer": "^2.0.2",
+    "supabase": "^2.54.11",
+    "web-push": "^3.6.7",
     "xlsx": "^0.18.5"
   }
 }

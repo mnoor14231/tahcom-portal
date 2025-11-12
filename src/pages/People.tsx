@@ -6,46 +6,121 @@ import { EditMemberModal } from '../components/modals/EditMemberModal.tsx';
 import { motion, AnimatePresence } from 'framer-motion';
 import { UserPlus, Users, Edit2, Trash2, AlertCircle } from 'lucide-react';
 import type { User } from '../types.ts';
+import { supabase } from '../lib/supabaseClient.ts';
+import { buildAdminApiUrl } from '../utils/apiBase.ts';
+
+const DEFAULT_TEMP_PASSWORD = '1234';
 
 export function PeoplePage() {
   const { user } = useAuth();
-  const { state, setState } = useData();
+  const { state, setState, refreshDirectory } = useData();
   const isManager = hasRole(user, ['manager']);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedMember, setSelectedMember] = useState<User | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [isCreatingMember, setIsCreatingMember] = useState(false);
+  const [createMemberError, setCreateMemberError] = useState<string | null>(null);
 
   if (!isManager) return <div className="text-sm text-gray-600">Department Managers only.</div>;
 
   const members = state.users.filter(u => u.departmentCode === user?.departmentCode && u.role === 'member');
 
-  function toggleCreate(id: string) {
-    setState(prev => ({
-      ...prev,
-      users: prev.users.map(u => u.id === id ? { ...u, canCreateTasks: !u.canCreateTasks } : u)
-    }));
+  async function getAccessToken() {
+    let { data, error } = await supabase.auth.getSession();
+    let token = data.session?.access_token;
+
+    if (!token || error) {
+      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+      if (refreshError || !refreshData.session?.access_token) {
+        throw new Error('Session expired. Please sign in again.');
+      }
+      token = refreshData.session.access_token;
+    }
+
+    return token;
   }
 
-  function handleAddMember(data: { displayName: string; username: string; specialty: string }) {
-    const newUser = {
-      id: `u_${Math.random().toString(36).slice(2, 9)}`,
-      username: data.username,
-      displayName: data.displayName,
-      role: 'member' as const,
-      departmentCode: user?.departmentCode,
-      status: 'active' as const,
-      canCreateTasks: true, // Default to true
-      requirePasswordChange: true, // Require password change on first login
-      specialty: data.specialty,
-    };
-    setState(prev => ({
-      ...prev,
-      users: [...prev.users, newUser]
-    }));
+  async function handleAddMember(data: { displayName: string; username: string; specialty: string }) {
+    if (!user?.departmentCode) {
+      setCreateMemberError('Missing department context for the current user.');
+      return false;
+    }
+
+    setCreateMemberError(null);
+    setIsCreatingMember(true);
+
+    try {
+      const accessToken = await getAccessToken();
+      const sanitizedUsername = data.username.trim().toLowerCase().replace(/\s+/g, '');
+
+      const response = await fetch(buildAdminApiUrl('/api/admin/users'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          username: sanitizedUsername,
+          displayName: data.displayName,
+          role: 'member',
+          departmentCode: user.departmentCode,
+          temporaryPassword: DEFAULT_TEMP_PASSWORD,
+          specialty: data.specialty,
+          canCreateTasks: true,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'Failed to create member');
+      }
+
+      await refreshDirectory();
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to add member';
+      console.error('[PeoplePage] addMember failed', err);
+      setCreateMemberError(message);
+      return false;
+    } finally {
+      setIsCreatingMember(false);
+    }
   }
 
-  function handleEditMember(data: { id: string; displayName: string; specialty: string }) {
+  async function toggleCreate(id: string) {
+    const member = state.users.find(u => u.id === id);
+    if (!member) return;
+
+    const nextValue = !member.canCreateTasks;
+
+    setState(prev => ({
+      ...prev,
+      users: prev.users.map(u => u.id === id ? { ...u, canCreateTasks: nextValue } : u)
+    }));
+
+    try {
+      const accessToken = await getAccessToken();
+      const response = await fetch(buildAdminApiUrl(`/api/admin/users/${id}`), {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ canCreateTasks: nextValue }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'Failed to update permissions');
+      }
+    } catch (error) {
+      console.error('[PeoplePage] Failed to toggle canCreateTasks', error);
+      await refreshDirectory();
+    }
+  }
+
+  async function handleEditMember(data: { id: string; displayName: string; specialty: string }) {
     setState(prev => ({
       ...prev,
       users: prev.users.map(u => 
@@ -54,14 +129,57 @@ export function PeoplePage() {
           : u
       )
     }));
+
+    try {
+      const accessToken = await getAccessToken();
+      const response = await fetch(buildAdminApiUrl(`/api/admin/users/${data.id}`), {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          displayName: data.displayName,
+          specialty: data.specialty,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'Failed to update member');
+      }
+    } catch (error) {
+      console.error('[PeoplePage] Failed to save member edits', error);
+      await refreshDirectory();
+    }
   }
 
-  function handleDeleteMember(memberId: string) {
+  async function handleDeleteMember(memberId: string) {
     setState(prev => ({
       ...prev,
       users: prev.users.filter(u => u.id !== memberId)
     }));
     setDeleteConfirm(null);
+
+    try {
+      const accessToken = await getAccessToken();
+      const response = await fetch(buildAdminApiUrl(`/api/admin/users/${memberId}`), {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'Failed to delete member');
+      }
+
+      await refreshDirectory();
+    } catch (error) {
+      console.error('[PeoplePage] Failed to delete member', error);
+      await refreshDirectory();
+    }
   }
 
   function openEditModal(member: User) {
@@ -82,7 +200,10 @@ export function PeoplePage() {
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
           className="btn btn-primary flex items-center gap-2"
-          onClick={() => setIsModalOpen(true)}
+          onClick={() => {
+            setCreateMemberError(null);
+            setIsModalOpen(true);
+          }}
         >
           <UserPlus size={18} />
           Add Member
@@ -129,7 +250,7 @@ export function PeoplePage() {
                     <input
                       type="checkbox"
                       checked={!!m.canCreateTasks}
-                      onChange={() => toggleCreate(m.id)}
+                      onChange={() => { void toggleCreate(m.id); }}
                       className="sr-only peer"
                     />
                     <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-orange-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-gradient-to-r peer-checked:from-orange-600 peer-checked:to-amber-500"></div>
@@ -166,7 +287,10 @@ export function PeoplePage() {
             <Users className="mx-auto text-gray-300 mb-3" size={48} />
             <p className="text-gray-500 mb-4">No team members yet</p>
             <button
-              onClick={() => setIsModalOpen(true)}
+              onClick={() => {
+                setCreateMemberError(null);
+                setIsModalOpen(true);
+              }}
               className="btn btn-primary inline-flex items-center gap-2"
             >
               <UserPlus size={16} />
@@ -176,10 +300,16 @@ export function PeoplePage() {
         )}
       </div>
       <AddMemberModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+         isOpen={isModalOpen}
+        onClose={() => {
+          setIsModalOpen(false);
+          setCreateMemberError(null);
+        }}
         onAdd={handleAddMember}
         departmentCode={user?.departmentCode || ''}
+        isSubmitting={isCreatingMember}
+        errorMessage={createMemberError}
+        defaultPassword={DEFAULT_TEMP_PASSWORD}
       />
       
       <EditMemberModal
@@ -232,7 +362,7 @@ export function PeoplePage() {
                       Cancel
                     </button>
                     <button
-                      onClick={() => handleDeleteMember(deleteConfirm)}
+                      onClick={() => { void handleDeleteMember(deleteConfirm); }}
                       className="flex-1 btn bg-red-600 text-white hover:bg-red-700 py-2"
                     >
                       Delete

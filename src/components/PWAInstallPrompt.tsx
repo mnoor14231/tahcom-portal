@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Download, Smartphone } from 'lucide-react';
+import { X, Download, Smartphone, Compass } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface BeforeInstallPromptEvent extends Event {
@@ -11,41 +11,48 @@ export function PWAInstallPrompt() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [showPrompt, setShowPrompt] = useState(false);
   const [isInstalled, setIsInstalled] = useState(false);
+  const [isSafariDesktop, setIsSafariDesktop] = useState(false);
 
   useEffect(() => {
-    // Check if already installed
-    if (window.matchMedia('(display-mode: standalone)').matches) {
-      setIsInstalled(true);
-      return;
-    }
-
-    // Check if running on iOS
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-    const isInStandaloneMode = ('standalone' in window.navigator) && (window.navigator as any).standalone;
-
-    if (isIOS && !isInStandaloneMode) {
-      // Show iOS install instructions
+    const showWithDelay = () => {
       const dismissed = localStorage.getItem('pwa-install-dismissed');
       if (!dismissed) {
         setTimeout(() => setShowPrompt(true), 3000);
       }
-    } else {
-      // Listen for beforeinstallprompt event (Android/Chrome)
-      const handler = (e: Event) => {
-        e.preventDefault();
-        setDeferredPrompt(e as BeforeInstallPromptEvent);
-        const dismissed = localStorage.getItem('pwa-install-dismissed');
-        if (!dismissed) {
-          setTimeout(() => setShowPrompt(true), 3000);
-        }
-      };
+    };
 
-      window.addEventListener('beforeinstallprompt', handler);
-
-      return () => {
-        window.removeEventListener('beforeinstallprompt', handler);
-      };
+    const standaloneMatch = window.matchMedia('(display-mode: standalone)').matches;
+    const iosStandalone = ('standalone' in window.navigator) && (window.navigator as any).standalone;
+    if (standaloneMatch || iosStandalone) {
+      setIsInstalled(true);
+      return;
     }
+
+    const iosRegex = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    const safariDesktopRegex = /^((?!chrome|android).)*safari/i.test(navigator.userAgent) && !iosRegex;
+    setIsSafariDesktop(safariDesktopRegex);
+
+    if (iosRegex) {
+      showWithDelay();
+      return;
+    }
+
+    if (safariDesktopRegex) {
+      showWithDelay();
+      return;
+    }
+
+    const handler = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e as BeforeInstallPromptEvent);
+      showWithDelay();
+    };
+
+    window.addEventListener('beforeinstallprompt', handler);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handler);
+    };
   }, []);
 
   const handleInstall = async () => {
@@ -94,12 +101,24 @@ export function PWAInstallPrompt() {
                     <li>Tap <span className="font-bold">"Add"</span></li>
                   </ol>
                 </div>
+              ) : isSafariDesktop ? (
+                <div className="text-sm space-y-2">
+                  <p>Install this app with Safari for quick access:</p>
+                  <ol className="list-decimal list-inside space-y-1 text-xs">
+                    <li>Open the <span className="font-bold">Share</span> menu (top-right).</li>
+                    <li>Choose <span className="font-bold">"Add to Dock"</span> or <span className="font-bold">"Add to Home Screen"</span>.</li>
+                    <li>Confirm by pressing <span className="font-bold">"Add"</span>.</li>
+                  </ol>
+                  <p className="text-xs text-white/80 flex items-center gap-1">
+                    <Compass size={12} /> Available on Safari 16.4 or later.
+                  </p>
+                </div>
               ) : (
                 <p className="text-sm mb-3">
                   Install this app for quick access and offline browsing of our partners and solutions.
                 </p>
               )}
-              {!isIOS && deferredPrompt && (
+              {!isIOS && !isSafariDesktop && deferredPrompt && (
                 <button
                   onClick={handleInstall}
                   className="w-full bg-white text-[#8B4513] font-semibold py-2 px-4 rounded-lg hover:bg-gray-100 transition-colors flex items-center justify-center gap-2"

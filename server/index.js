@@ -12,6 +12,10 @@ import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createClient } from '@supabase/supabase-js';
+import webPush from 'web-push';
+import { registerAdminUserRoutes } from './adminUsers.js';
+import { registerAdminKpiRoutes } from './adminKpis.js';
 
 // ES module equivalent of __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -58,6 +62,134 @@ const gmailTokens = new Map(); // Gmail tokens: userId -> tokens
 
 // Follow-up tracking: userId -> Map<email, {lastSent, threadId, followUpDate}>
 const followUps = new Map();
+
+// Simple in-memory cache for Google Sheets responses
+const CACHE_TTL_MS = Number(process.env.SHEETS_CACHE_TTL_MS || 60000); // default 60s
+const sheetMetaCache = new Map(); // spreadsheetId -> { value, expiresAt }
+const sheetDataCache = new Map(); // `${spreadsheetId}::${sheetName}` -> { value, expiresAt }
+
+const cacheKeyForSheet = (spreadsheetId, sheetName) => `${spreadsheetId}::${sheetName}`;
+
+const getFromCache = (map, key) => {
+  const entry = map.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    map.delete(key);
+    return null;
+  }
+  return entry.value;
+};
+
+const setCache = (map, key, value) => {
+  map.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
+};
+
+const invalidateSheetCaches = (spreadsheetId, sheetName) => {
+  sheetMetaCache.delete(spreadsheetId);
+  if (sheetName) {
+    sheetDataCache.delete(cacheKeyForSheet(spreadsheetId, sheetName));
+  } else {
+    for (const key of sheetDataCache.keys()) {
+      if (key.startsWith(`${spreadsheetId}::`)) {
+        sheetDataCache.delete(key);
+      }
+    }
+  }
+};
+
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_USERNAME_DOMAIN = process.env.SUPABASE_USERNAME_DOMAIN || 'tahcom.local';
+
+const DEFAULT_VAPID_PUBLIC_KEY = 'BBS-5m8-nZLTjJDmWEgTi4o65N1c9_ezF4MJHt2BQsHOEPmLiBwXxo9sQjt3I_l_eL_DvukgLIV9lm_HCodv92c';
+const DEFAULT_VAPID_PRIVATE_KEY = 'Oc7ILnd1PtIHQmKURfQ73J7WNJwNy58ng3qqOJJOLDs';
+
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || DEFAULT_VAPID_PUBLIC_KEY;
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || DEFAULT_VAPID_PRIVATE_KEY;
+const VAPID_CONTACT = process.env.VAPID_CONTACT_EMAIL || 'mailto:notifications@tahcom.com';
+
+const PUSH_CONFIGURED = Boolean(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
+
+if (PUSH_CONFIGURED) {
+  try {
+    webPush.setVapidDetails(VAPID_CONTACT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+  } catch (error) {
+    console.warn('[push] Failed to configure web-push VAPID keys', error);
+  }
+} else {
+  console.warn('[push] VAPID keys missing. Set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY to enable web push notifications.');
+}
+
+const supabaseAdmin = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
+  ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    })
+  : null;
+
+if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+  console.warn('[server] Supabase service role not configured. Admin user provisioning API will be disabled.');
+}
+
+function buildEmailFromUsername(username) {
+  if (!username) return null;
+  const value = String(username).trim();
+  if (!value) return null;
+  if (value.includes('@')) return value.toLowerCase();
+  return `${value}@${SUPABASE_USERNAME_DOMAIN}`.toLowerCase();
+}
+
+async function requireSupabaseRole(req, res, allowedRoles = ['admin']) {
+  if (!supabaseAdmin) {
+    res.status(503).json({ ok: false, error: 'supabase_admin_unavailable' });
+    return null;
+  }
+
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.startsWith('Bearer ')
+    ? authHeader.slice('Bearer '.length).trim()
+    : null;
+
+  if (!token) {
+    res.status(401).json({ ok: false, error: 'missing_bearer_token' });
+    return null;
+  }
+
+  try {
+    const { data: userData, error: userError } = await supabaseAdmin.auth.getUser(token);
+    if (userError || !userData?.user) {
+      console.error('[requireSupabaseRole] Supabase getUser failed', userError);
+      res.status(401).json({ ok: false, error: 'invalid_token', detail: userError?.message ?? null });
+      return null;
+    }
+
+    const requesterId = userData.user.id;
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('id, role, department_code')
+      .eq('id', requesterId)
+      .maybeSingle();
+
+    if (profileError || !profile) {
+      console.warn('[server] Missing profile for authenticated user', requesterId, profileError);
+      res.status(403).json({ ok: false, error: 'profile_missing' });
+      return null;
+    }
+
+    if (!allowedRoles.includes(profile.role)) {
+      res.status(403).json({ ok: false, error: 'insufficient_role', required: allowedRoles });
+      return null;
+    }
+
+    return { requesterId, profile };
+  } catch (err) {
+    console.error('[server] Failed to validate auth token', err);
+    res.status(500).json({ ok: false, error: 'role_validation_failed' });
+    return null;
+  }
+}
 
 // Gmail OAuth configuration (from .env)
 const GMAIL_CLIENT_ID = process.env.GMAIL_CLIENT_ID;
@@ -151,7 +283,98 @@ app.use(cors({
 app.use(express.json({ limit: '1mb' }));
 
 app.get('/health', (_req, res) => {
-  res.json({ ok: true, timestamp: new Date().toISOString() });
+  res.json({ 
+    ok: true, 
+    timestamp: new Date().toISOString(),
+    backend: 'tahcom-api-server',
+    googleSheets: {
+      initialized: !!sheetsClient,
+      serviceAccountEmail: serviceAccountEmail
+    }
+  });
+});
+
+app.post('/api/push/send', async (req, res) => {
+  if (!supabaseAdmin) {
+    res.status(503).json({ ok: false, error: 'supabase_admin_unavailable' });
+    return;
+  }
+
+  if (!PUSH_CONFIGURED) {
+    res.status(503).json({ ok: false, error: 'push_not_configured' });
+    return;
+  }
+
+  const authContext = await requireSupabaseRole(req, res, ['admin', 'manager', 'member']);
+  if (!authContext) return;
+
+  const { userId, title, body, url, data } = req.body || {};
+
+  if (!userId || !title || !body) {
+    res.status(400).json({ ok: false, error: 'invalid_payload' });
+    return;
+  }
+
+  try {
+    const { data: subscriptions, error } = await supabaseAdmin
+      .from('push_subscriptions')
+      .select('id, endpoint, subscription')
+      .eq('user_id', userId);
+
+    if (error) {
+      console.error('[push] Failed to load subscriptions', error);
+      res.status(500).json({ ok: false, error: 'push_fetch_failed' });
+      return;
+    }
+
+    if (!subscriptions?.length) {
+      res.json({ ok: true, sent: 0, removed: 0 });
+      return;
+    }
+
+    const payload = JSON.stringify({
+      title,
+      body,
+      url,
+      data,
+    });
+
+    let sent = 0;
+    let removed = 0;
+
+    await Promise.allSettled(subscriptions.map(async (sub) => {
+      const subscription = sub.subscription;
+      if (!subscription?.endpoint) {
+        removed += 1;
+        await supabaseAdmin
+          .from('push_subscriptions')
+          .delete()
+          .eq('id', sub.id);
+        return;
+      }
+
+      try {
+        await webPush.sendNotification(subscription, payload);
+        sent += 1;
+      } catch (err) {
+        const statusCode = err?.statusCode;
+        const shouldRemove = statusCode === 404 || statusCode === 410;
+        console.warn('[push] Failed to deliver notification', err?.message || err);
+        if (shouldRemove) {
+          removed += 1;
+          await supabaseAdmin
+            .from('push_subscriptions')
+            .delete()
+            .eq('id', sub.id);
+        }
+      }
+    }));
+
+    res.json({ ok: true, sent, removed });
+  } catch (err) {
+    console.error('[push] Unexpected failure', err);
+    res.status(500).json({ ok: false, error: 'push_dispatch_failed' });
+  }
 });
 
 // Test endpoint for partners API
@@ -160,8 +383,45 @@ app.get('/api/partners/test', (_req, res) => {
     ok: true, 
     message: 'Partners API is working',
     sheetsClient: !!sheetsClient,
+    serviceAccountEmail: serviceAccountEmail,
+    initError: sheetsInitError,
     timestamp: new Date().toISOString()
   });
+});
+
+// Diagnostic endpoint to check Google Sheets connection
+app.get('/api/partners/diagnose', async (_req, res) => {
+  const diagnostics = {
+    timestamp: new Date().toISOString(),
+    backend: {
+      status: 'ok',
+      hasEnvVar: !!process.env.GOOGLE_SERVICE_ACCOUNT,
+      hasServiceAccountFile: fs.existsSync(path.join(__dirname, 'service-account.json')),
+    },
+    googleSheets: {
+      initialized: !!sheetsClient,
+      serviceAccountEmail: serviceAccountEmail,
+      initError: sheetsInitError,
+    },
+    instructions: []
+  };
+  
+  if (!sheetsClient) {
+    diagnostics.instructions.push('❌ Google Sheets client is not initialized');
+    if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
+      diagnostics.instructions.push('1. Add GOOGLE_SERVICE_ACCOUNT environment variable in Vercel');
+      diagnostics.instructions.push('2. Copy the entire content of service-account.json (all on one line)');
+    } else {
+      diagnostics.instructions.push('⚠️ GOOGLE_SERVICE_ACCOUNT is set but initialization failed');
+      diagnostics.instructions.push('Check the JSON format - make sure newlines are escaped as \\n');
+    }
+  } else {
+    diagnostics.instructions.push('✅ Google Sheets client is initialized');
+    diagnostics.instructions.push(`Service account: ${serviceAccountEmail}`);
+    diagnostics.instructions.push('Make sure your spreadsheet is shared with this email address');
+  }
+  
+  res.json(diagnostics);
 });
 
 // Lightweight key/quota check
@@ -219,6 +479,9 @@ cachedProducts = loadProductsFromExcel();
 
 // Initialize Google Sheets client
 let sheetsClient = null;
+let sheetsInitError = null;
+let serviceAccountEmail = null;
+
 const initGoogleSheets = () => {
   try {
     let serviceAccount;
@@ -226,45 +489,85 @@ const initGoogleSheets = () => {
     // Try environment variable first (for Vercel deployment)
     if (process.env.GOOGLE_SERVICE_ACCOUNT) {
       try {
-        serviceAccount = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
-        console.log('[Google Sheets] Loaded service account from GOOGLE_SERVICE_ACCOUNT environment variable');
+        // Handle environment variable - might have escaped newlines
+        let envValue = process.env.GOOGLE_SERVICE_ACCOUNT;
+        
+        // If it's a string with escaped newlines, parse it properly
+        // Vercel stores JSON with \\n (double backslash) which JSON.parse treats as literal \n
+        // We need to convert those to actual newlines after parsing
+        if (typeof envValue === 'string') {
+          // Parse the JSON
+          serviceAccount = JSON.parse(envValue);
+          
+          // If private_key exists and has \\n (literal backslash-n), replace with actual newlines
+          if (serviceAccount.private_key && typeof serviceAccount.private_key === 'string') {
+            // Replace literal \n (backslash followed by n) with actual newline characters
+            serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+          }
+        } else {
+          serviceAccount = envValue;
+        }
+        
+        console.log('[Google Sheets] ✅ Loaded service account from GOOGLE_SERVICE_ACCOUNT environment variable');
+        console.log('[Google Sheets] Service account email:', serviceAccount.client_email);
       } catch (e) {
-        console.error('[Google Sheets] Failed to parse GOOGLE_SERVICE_ACCOUNT env var:', e.message);
+        console.error('[Google Sheets] ❌ Failed to parse GOOGLE_SERVICE_ACCOUNT env var:', e.message);
+        console.error('[Google Sheets] Error details:', e);
+        sheetsInitError = `Failed to parse GOOGLE_SERVICE_ACCOUNT: ${e.message}`;
+        return;
       }
     }
     
     // Fallback to file if env var not set
     if (!serviceAccount) {
       const serviceAccountPath = path.join(__dirname, 'service-account.json');
-      console.log('[Google Sheets] Looking for service account at:', serviceAccountPath);
+      console.log('[Google Sheets] Looking for service account file at:', serviceAccountPath);
       
       if (!fs.existsSync(serviceAccountPath)) {
-        console.warn('[Google Sheets] service-account.json not found at:', serviceAccountPath);
-        console.warn('[Google Sheets] Set GOOGLE_SERVICE_ACCOUNT environment variable with the JSON content');
+        console.warn('[Google Sheets] ⚠️ service-account.json not found at:', serviceAccountPath);
+        console.warn('[Google Sheets] Set GOOGLE_SERVICE_ACCOUNT environment variable in Vercel with the JSON content');
+        sheetsInitError = 'Service account file not found and GOOGLE_SERVICE_ACCOUNT env var not set';
         return;
       }
       
-      serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
-      console.log('[Google Sheets] Loaded service account from file');
+      try {
+        serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
+        console.log('[Google Sheets] ✅ Loaded service account from file');
+      } catch (e) {
+        console.error('[Google Sheets] ❌ Failed to parse service-account.json:', e.message);
+        sheetsInitError = `Failed to parse service-account.json: ${e.message}`;
+        return;
+      }
     }
     
     if (!serviceAccount.client_email || !serviceAccount.private_key) {
-      console.error('[Google Sheets] service-account.json is missing required fields');
+      console.error('[Google Sheets] ❌ Service account is missing required fields (client_email or private_key)');
+      sheetsInitError = 'Service account missing required fields: client_email or private_key';
       return;
+    }
+    
+    // Ensure private key has proper newlines
+    let privateKey = serviceAccount.private_key;
+    if (privateKey && !privateKey.includes('\n')) {
+      // Replace literal \n with actual newlines if needed
+      privateKey = privateKey.replace(/\\n/g, '\n');
     }
     
     const jwtClient = new JWT({
       email: serviceAccount.client_email,
-      key: serviceAccount.private_key,
+      key: privateKey,
       scopes: ['https://www.googleapis.com/auth/spreadsheets'],
     });
     
     sheetsClient = google.sheets({ version: 'v4', auth: jwtClient });
-    console.log('[Google Sheets] Initialized successfully');
-    console.log('[Google Sheets] Service account:', serviceAccount.client_email);
+    serviceAccountEmail = serviceAccount.client_email;
+    sheetsInitError = null;
+    console.log('[Google Sheets] ✅ Initialized successfully');
+    console.log('[Google Sheets] Service account email:', serviceAccountEmail);
   } catch (err) {
-    console.error('[Google Sheets] Failed to initialize:', err.message);
+    console.error('[Google Sheets] ❌ Failed to initialize:', err.message);
     console.error('[Google Sheets] Error details:', err);
+    sheetsInitError = err.message || 'Unknown error during initialization';
   }
 };
 
@@ -1529,8 +1832,17 @@ app.get('/api/outlook/signature', async (req, res) => {
 app.get('/api/partners/sheets/:spreadsheetId', async (req, res) => {
   try {
     const { spreadsheetId } = req.params;
+    const skipCache = req.query.refresh === 'true';
     if (!sheetsClient) {
       return res.status(500).json({ error: 'Google Sheets not initialized. Check service-account.json file.' });
+    }
+
+    if (!skipCache) {
+      const cached = getFromCache(sheetMetaCache, spreadsheetId);
+      if (cached) {
+        res.set('X-Cache', 'HIT');
+        return res.json(cached);
+      }
     }
     
     // First, try to get spreadsheet metadata to check if it's a valid Google Sheet
@@ -1543,25 +1855,41 @@ app.get('/api/partners/sheets/:spreadsheetId', async (req, res) => {
       id: sheet.properties.sheetId,
       title: sheet.properties.title,
     }));
-    
-    res.json({ sheets, title: response.data.properties?.title });
+
+    const payload = { sheets, title: response.data.properties?.title };
+    setCache(sheetMetaCache, spreadsheetId, payload);
+    res.set('X-Cache', skipCache ? 'BYPASS' : 'MISS');
+    res.json(payload);
   } catch (err) {
     console.error('[partners/sheets] error', err);
     
     // Provide more specific error messages
     let errorMessage = err.message || 'Unknown error';
+    let statusCode = 500;
     
-    if (err.code === 403 || errorMessage.includes('permission') || errorMessage.includes('access')) {
-      errorMessage = `Permission denied. Please share the spreadsheet with: sheets-writer@gen-lang-client-0250382533.iam.gserviceaccount.com`;
+    if (!sheetsClient) {
+      statusCode = 503;
+      errorMessage = `Google Sheets not initialized. ${serviceAccountEmail ? `Service account: ${serviceAccountEmail}. ` : ''}${sheetsInitError ? `Error: ${sheetsInitError}` : 'Check GOOGLE_SERVICE_ACCOUNT environment variable in Vercel.'}`;
+    } else if (err.code === 403 || errorMessage.includes('permission') || errorMessage.includes('access')) {
+      statusCode = 403;
+      errorMessage = `Permission denied. Please share the spreadsheet "${spreadsheetId}" with the service account email: ${serviceAccountEmail || 'sheets-writer@gen-lang-client-0250382533.iam.gserviceaccount.com'}`;
     } else if (err.code === 404 || errorMessage.includes('not found')) {
-      errorMessage = `Spreadsheet not found. Check the spreadsheet ID: ${spreadsheetId}`;
+      statusCode = 404;
+      errorMessage = `Spreadsheet not found. Check the spreadsheet ID: ${spreadsheetId}. Make sure the spreadsheet exists and is accessible.`;
     } else if (errorMessage.includes('not supported') || errorMessage.includes('FAILED_PRECONDITION')) {
+      statusCode = 400;
       errorMessage = `This file is not a native Google Sheet. It appears to be an Excel file (.xlsx). Please convert it to Google Sheets format:\n\n1. Open the file in Google Drive\n2. Right-click → "Open with" → "Google Sheets"\n3. Or go to File → "Save as Google Sheets"\n\nThen use the new Google Sheet's ID.`;
-    } else if (errorMessage.includes('API key')) {
-      errorMessage = 'Google Sheets API authentication failed. Check service-account.json.';
+    } else if (errorMessage.includes('API key') || errorMessage.includes('authentication')) {
+      statusCode = 500;
+      errorMessage = `Google Sheets API authentication failed. Service account: ${serviceAccountEmail || 'not configured'}. Check GOOGLE_SERVICE_ACCOUNT environment variable.`;
     }
     
-    res.status(err.code === 403 ? 403 : err.code === 404 ? 404 : 400).json({ error: errorMessage });
+    res.status(statusCode).json({ 
+      error: errorMessage,
+      spreadsheetId,
+      serviceAccountEmail,
+      code: err.code,
+    });
   }
 });
 
@@ -1569,9 +1897,19 @@ app.get('/api/partners/sheets/:spreadsheetId', async (req, res) => {
 app.get('/api/partners/sheets/:spreadsheetId/:sheetName', async (req, res) => {
   try {
     const { spreadsheetId, sheetName } = req.params;
+    const skipCache = req.query.refresh === 'true';
     
     if (!sheetsClient) {
       return res.status(500).json({ error: 'Google Sheets not initialized. Check service-account.json file.' });
+    }
+
+    const dataCacheKey = cacheKeyForSheet(spreadsheetId, sheetName);
+    if (!skipCache) {
+      const cached = getFromCache(sheetDataCache, dataCacheKey);
+      if (cached) {
+        res.set('X-Cache', 'HIT');
+        return res.json(cached);
+      }
     }
     
     const response = await sheetsClient.spreadsheets.values.get({
@@ -1589,22 +1927,38 @@ app.get('/api/partners/sheets/:spreadsheetId/:sheetName', async (req, res) => {
       return obj;
     });
     
-    res.json({ headers, data, rawRows: rows });
+    const payload = { headers, data, rawRows: rows };
+    setCache(sheetDataCache, dataCacheKey, payload);
+    res.set('X-Cache', skipCache ? 'BYPASS' : 'MISS');
+    res.json(payload);
   } catch (err) {
     console.error('[partners/get] error', err);
     
     // Provide more specific error messages
     let errorMessage = err.message || 'Unknown error';
+    let statusCode = 500;
     
-    if (err.code === 403 || errorMessage.includes('permission') || errorMessage.includes('access')) {
-      errorMessage = `Permission denied. Please share the spreadsheet with: sheets-writer@gen-lang-client-0250382533.iam.gserviceaccount.com`;
+    if (!sheetsClient) {
+      statusCode = 503;
+      errorMessage = `Google Sheets not initialized. ${serviceAccountEmail ? `Service account: ${serviceAccountEmail}. ` : ''}${sheetsInitError ? `Error: ${sheetsInitError}` : 'Check GOOGLE_SERVICE_ACCOUNT environment variable in Vercel.'}`;
+    } else if (err.code === 403 || errorMessage.includes('permission') || errorMessage.includes('access')) {
+      statusCode = 403;
+      errorMessage = `Permission denied. Please share the spreadsheet with the service account: ${serviceAccountEmail || 'sheets-writer@gen-lang-client-0250382533.iam.gserviceaccount.com'}`;
     } else if (err.code === 404 || errorMessage.includes('not found')) {
-      errorMessage = `Sheet "${sheetName}" not found in spreadsheet. Check the sheet name.`;
-    } else if (errorMessage.includes('API key')) {
-      errorMessage = 'Google Sheets API authentication failed. Check service-account.json.';
+      statusCode = 404;
+      errorMessage = `Sheet "${sheetName}" not found in spreadsheet "${spreadsheetId}". Check the sheet name and make sure it exists.`;
+    } else if (errorMessage.includes('API key') || errorMessage.includes('authentication')) {
+      statusCode = 500;
+      errorMessage = `Google Sheets API authentication failed. Service account: ${serviceAccountEmail || 'not configured'}. Check GOOGLE_SERVICE_ACCOUNT environment variable.`;
     }
     
-    res.status(err.code === 403 ? 403 : err.code === 404 ? 404 : 500).json({ error: errorMessage });
+    res.status(statusCode).json({ 
+      error: errorMessage,
+      spreadsheetId,
+      sheetName,
+      serviceAccountEmail,
+      code: err.code,
+    });
   }
 });
 
@@ -1625,6 +1979,7 @@ app.put('/api/partners/sheets/:spreadsheetId/:sheetName/cell', async (req, res) 
       resource: { values: [[value]] },
     });
     
+    invalidateSheetCaches(spreadsheetId, sheetName);
     res.json({ success: true });
   } catch (err) {
     console.error('[partners/update-cell] error', err);
@@ -1649,6 +2004,7 @@ app.put('/api/partners/sheets/:spreadsheetId/:sheetName/row/:rowIndex', async (r
       resource: { values: [values] },
     });
     
+    invalidateSheetCaches(spreadsheetId, sheetName);
     res.json({ success: true });
   } catch (err) {
     console.error('[partners/update-row] error', err);
@@ -1673,7 +2029,8 @@ app.post('/api/partners/sheets/:spreadsheetId/:sheetName/row', async (req, res) 
       insertDataOption: 'INSERT_ROWS',
       resource: { values: [values] },
     });
-    
+
+    invalidateSheetCaches(spreadsheetId, sheetName);
     res.json({ success: true, updatedRange: response.data.updates?.updatedRange });
   } catch (err) {
     console.error('[partners/append-row] error', err);
@@ -1712,7 +2069,8 @@ app.delete('/api/partners/sheets/:spreadsheetId/:sheetName/row/:rowIndex', async
         }],
       },
     });
-    
+
+    invalidateSheetCaches(spreadsheetId, sheetName);
     res.json({ success: true });
   } catch (err) {
     console.error('[partners/delete-row] error', err);
@@ -1755,5 +2113,8 @@ if (!process.env.VERCEL) {
 
 // Export for Vercel serverless functions
 export default app;
+
+registerAdminUserRoutes(app, { supabaseAdmin, requireSupabaseRole, buildEmailFromUsername });
+registerAdminKpiRoutes(app, { supabaseAdmin, requireSupabaseRole });
 
 

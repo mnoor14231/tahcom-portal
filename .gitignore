@@ -38,5 +38,12 @@ manifest.webmanifest
 
 # Secrets and credentials
 server/service-account.json
+server/service-account-*.json
+server/service-account-*.txt
+server/vercel-env-value.txt
 *.service-account.json
 **/service-account.json
+**/service-account-*.txt
+**/vercel-env-value.txt
+
+.vercel

@@ -4,20 +4,24 @@ import { Lock, AlertCircle } from 'lucide-react';
 
 interface ChangePasswordModalProps {
   isOpen: boolean;
-  onChangePassword: (newPassword: string) => void;
+  onChangePassword: (newPassword: string) => void | Promise<void>;
   isRequired?: boolean;
+  serverError?: string | null;
+  isSubmitting?: boolean;
 }
 
-export function ChangePasswordModal({ 
-  isOpen, 
+export function ChangePasswordModal({
+  isOpen,
   onChangePassword,
-  isRequired = false 
+  isRequired = false,
+  serverError = null,
+  isSubmitting = false
 }: ChangePasswordModalProps) {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
 
@@ -36,9 +40,13 @@ export function ChangePasswordModal({
       return;
     }
 
-    onChangePassword(newPassword);
-    setNewPassword('');
-    setConfirmPassword('');
+    try {
+      await onChangePassword(newPassword);
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch {
+      // Parent handles error display via serverError prop
+    }
   }
 
   return (
@@ -106,18 +114,21 @@ export function ChangePasswordModal({
                     />
                   </div>
 
-                  {error && (
+                  {(error || serverError) && (
                     <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-                      <p className="text-sm text-red-700">{error}</p>
+                      <p className="text-sm text-red-700">
+                        {error || serverError}
+                      </p>
                     </div>
                   )}
 
                   <button
                     type="submit"
-                    className="w-full btn btn-primary py-2 flex items-center justify-center gap-2"
+                    disabled={isSubmitting}
+                    className="w-full btn btn-primary py-2 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Lock size={18} />
-                    Change Password
+                    {isSubmitting ? 'Updating...' : 'Change Password'}
                   </button>
                 </form>
 

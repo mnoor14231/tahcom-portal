@@ -8,37 +8,34 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['tahcomlogo.png', 'vite.svg'],
-      manifest: {
-        name: 'Tahcom Our Partners',
-        short_name: 'Partners',
-        description: 'Tahcom Partners & Solutions Dashboard - Browse solutions and systems',
-        theme_color: '#8B4513',
-        background_color: '#FFFFFF',
-        display: 'standalone',
-        orientation: 'portrait-primary',
-        scope: '/',
-        start_url: '/our-partners',
-        icons: [
-          {
-            src: '/tahcomlogo.png',
-            sizes: '192x192',
-            type: 'image/png',
-            purpose: 'any maskable'
-          },
-          {
-            src: '/tahcomlogo.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'any maskable'
-          }
-        ],
-        categories: ['business', 'productivity'],
-        screenshots: []
-      },
+      includeAssets: ['tahcomlogo.png', 'vite.svg', 'offline.html'],
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        importScripts: ['push-handler.js'],
+        cleanupOutdatedCaches: true,
+        navigateFallback: '/index.html',
+        navigateFallbackDenylist: [
+          /^\/api\//,
+          /^\/auth\//,
+          /^\/rest\//,
+          /^\/__\/.*/
+        ],
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,woff2}'],
         runtimeCaching: [
+          {
+            urlPattern: ({ request }) => request.mode === 'navigate',
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'pages-cache',
+              networkTimeoutSeconds: 8,
+              cacheableResponse: {
+                statuses: [0, 200]
+              },
+              expiration: {
+                maxEntries: 50,
+                maxAgeSeconds: 60 * 60 * 24
+              }
+            }
+          },
           {
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
             handler: 'CacheFirst',
@@ -84,18 +81,38 @@ export default defineConfig({
             }
           },
           {
+            urlPattern: /^https:\/\/tahcom-api\.vercel\.app\/.*/i,
+            handler: 'NetworkOnly',
+            options: {
+              fetchOptions: {
+                cache: 'no-store',
+                credentials: 'omit'
+              }
+            }
+          },
+          {
+            urlPattern: /^http:\/\/localhost:8787\/.*/i,
+            handler: 'NetworkOnly',
+            options: {
+              fetchOptions: {
+                cache: 'no-store',
+                credentials: 'omit'
+              }
+            }
+          },
+          {
             // Cache other external resources (but not backend APIs)
             urlPattern: /^https?:\/\/.*/i,
             handler: 'NetworkFirst',
             options: {
-              cacheName: 'api-cache',
+              cacheName: 'external-cache',
               expiration: {
                 maxEntries: 50,
-                maxAgeSeconds: 60 * 60 // 1 hour
+                maxAgeSeconds: 60 * 30 // 30 minutes
               },
               networkTimeoutSeconds: 10,
               cacheableResponse: {
-                statuses: [200] // Only cache successful responses (not errors)
+                statuses: [200]
               }
             }
           }
@@ -104,7 +121,64 @@ export default defineConfig({
       devOptions: {
         enabled: true,
         type: 'module'
-      }
+      },
+      manifest: {
+        name: 'Tahcom Portal',
+        short_name: 'Tahcom',
+        description: 'Tahcom KPI & partners portal – manage tasks, dashboards, and explore solutions.',
+        theme_color: '#8B4513',
+        background_color: '#FFF7ED',
+        display: 'standalone',
+        orientation: 'portrait-primary',
+        scope: '/',
+        start_url: '/login',
+        categories: ['business', 'productivity'],
+        shortcuts: [
+          {
+            name: 'Open Dashboard',
+            short_name: 'Dashboard',
+            description: 'Jump straight into the KPI dashboard',
+            url: '/dashboard',
+            icons: [
+              {
+                src: '/tahcomlogo.png',
+                sizes: '192x192',
+                type: 'image/png'
+              }
+            ]
+          },
+          {
+            name: 'Explore Partners',
+            short_name: 'Partners',
+            description: 'View partner solutions quickly',
+            url: '/our-partners',
+            icons: [
+              {
+                src: '/tahcomlogo.png',
+                sizes: '192x192',
+                type: 'image/png'
+              }
+            ]
+          }
+        ],
+        icons: [
+          {
+            src: '/tahcomlogo.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'any maskable'
+          },
+          {
+            src: '/tahcomlogo.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any maskable'
+          }
+        ],
+        screenshots: []
+      },
+      injectRegister: 'auto',
+      strategies: 'generateSW'
     })
   ],
   publicDir: 'public',

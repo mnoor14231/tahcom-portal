@@ -5,23 +5,28 @@ import { X, UserPlus } from 'lucide-react';
 interface AddMemberModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAdd: (data: { displayName: string; username: string; specialty: string }) => void;
+  onAdd: (data: { displayName: string; username: string; specialty: string }) => Promise<boolean>;
   departmentCode: string;
+  isSubmitting: boolean;
+  errorMessage?: string | null;
+  defaultPassword: string;
 }
 
-export function AddMemberModal({ isOpen, onClose, onAdd, departmentCode }: AddMemberModalProps) {
+export function AddMemberModal({ isOpen, onClose, onAdd, departmentCode, isSubmitting, errorMessage, defaultPassword }: AddMemberModalProps) {
   const [displayName, setDisplayName] = useState('');
   const [username, setUsername] = useState('');
   const [specialty, setSpecialty] = useState('');
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!displayName.trim() || !username.trim() || !specialty.trim()) return;
-    onAdd({ displayName: displayName.trim(), username: username.trim(), specialty: specialty.trim() });
-    setDisplayName('');
-    setUsername('');
-    setSpecialty('');
-    onClose();
+    const ok = await onAdd({ displayName: displayName.trim(), username: username.trim(), specialty: specialty.trim() });
+    if (ok) {
+      setDisplayName('');
+      setUsername('');
+      setSpecialty('');
+      onClose();
+    }
   }
 
   return (
@@ -79,9 +84,12 @@ export function AddMemberModal({ isOpen, onClose, onAdd, departmentCode }: AddMe
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
                       className="w-full rounded-lg border-gray-300 focus:border-brand-1 focus:ring-brand-1 transition-colors"
-                      placeholder="johndoe"
+                      placeholder="israa or israa@tahcom.com"
                       required
                     />
+                    <p className="text-xs text-gray-500 mt-2">
+                      Use lowercase letters/numbers (e.g. <span className="font-mono">israa</span>) or enter a full email. We’ll add the company domain automatically when needed.
+                    </p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium mb-2">Specialty</label>
@@ -99,20 +107,34 @@ export function AddMemberModal({ isOpen, onClose, onAdd, departmentCode }: AddMe
                       type="button"
                       onClick={onClose}
                       className="flex-1 btn btn-outline py-2"
+                      disabled={isSubmitting}
                     >
                       Cancel
                     </button>
                     <button
                       type="submit"
-                      className="flex-1 btn btn-primary py-2 flex items-center justify-center gap-2"
+                      className="flex-1 btn btn-primary py-2 flex items-center justify-center gap-2 disabled:opacity-50"
+                      disabled={isSubmitting}
                     >
-                      <UserPlus size={18} />
-                      Add Member
+                      {isSubmitting ? (
+                        <span className="flex items-center gap-2">
+                          <span className="h-3 w-3 rounded-full border-2 border-white/80 border-t-transparent animate-spin" />
+                          Saving...
+                        </span>
+                      ) : (
+                        <>
+                          <UserPlus size={18} />
+                          Add Member
+                        </>
+                      )}
                     </button>
                   </div>
                 </form>
+                {errorMessage && (
+                  <p className="mt-4 text-sm text-red-600">{errorMessage}</p>
+                )}
                 <p className="mt-4 text-xs text-gray-500">
-                  Default password will be set to: <span className="font-mono font-semibold">123</span>
+                  Default password will be set to: <span className="font-mono font-semibold">{defaultPassword}</span>
                 </p>
               </div>
             </motion.div>

@@ -1,8 +1,8 @@
 {
-  "name": "Tahcom Our Partners",
-  "short_name": "Partners",
-  "description": "Tahcom Partners & Solutions Dashboard",
-  "start_url": "/our-partners",
+  "name": "Tahcom Portal",
+  "short_name": "Tahcom",
+  "description": "Tahcom KPI & Partners Portal – manage teams and explore solutions",
+  "start_url": "/login",
   "display": "standalone",
   "background_color": "#FFF7ED",
   "theme_color": "#8B4513",
@@ -23,6 +23,20 @@
   ],
   "categories": ["business", "productivity"],
   "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Open Dashboard",
+      "short_name": "Dashboard",
+      "description": "Jump straight into the KPI dashboard",
+      "url": "/dashboard"
+    },
+    {
+      "name": "Explore Partners",
+      "short_name": "Partners",
+      "description": "View partner solutions quickly",
+      "url": "/our-partners"
+    }
+  ],
   "related_applications": [],
   "prefer_related_applications": false
 }

@@ -1,8 +1,13 @@
-import React, { createContext, useContext, useMemo, useState, useEffect } from 'react';
+import React, { createContext, useContext, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import type { Notification, NotificationType } from '../types.ts';
 import { useAuth } from './AuthContext.tsx';
 import { useData } from './DataContext.tsx';
+import { supabase } from '../lib/supabaseClient.ts';
+import { sendServerPushNotification } from '../utils/pushNotifications.ts';
+
+const SUPABASE_CONFIGURED =
+  Boolean(import.meta.env.VITE_SUPABASE_URL) && Boolean(import.meta.env.VITE_SUPABASE_ANON_KEY);
 
 interface NotificationContextValue {
   notifications: Notification[];
@@ -12,13 +17,20 @@ interface NotificationContextValue {
   addNotification: (notification: Omit<Notification, 'id' | 'timestamp' | 'isRead'>) => void;
   removeNotification: (notificationId: string) => void;
   showNotification: (type: NotificationType, title: string, message: string, relatedTaskId?: string, targetUserId?: string) => void;
+  savePushSubscription: (subscription: PushSubscription) => Promise<void>;
 }
 
 const NotificationContext = createContext<NotificationContextValue | undefined>(undefined);
 
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  const { state, setState } = useData();
+  const {
+    state,
+    addNotification: persistNotification,
+    markNotificationAsRead: markNotificationInState,
+    markAllNotificationsAsRead: markAllNotificationsInState,
+    removeNotification: removeNotificationFromState,
+  } = useData();
   const [showPopup, setShowPopup] = useState(false);
   const [currentNotification, setCurrentNotification] = useState<Notification | null>(null);
 
@@ -33,17 +45,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   }, [userNotifications]);
 
   const addNotification = (notification: Omit<Notification, 'id' | 'timestamp' | 'isRead'>) => {
-    const newNotification: Notification = {
-      ...notification,
-      id: `notif_${Math.random().toString(36).slice(2, 9)}`,
-      timestamp: new Date().toISOString(),
-      isRead: false,
-    };
-
-    setState(prev => ({
-      ...prev,
-      notifications: [newNotification, ...prev.notifications]
-    }));
+    const newNotification = persistNotification(notification);
 
     // Show popup for task assignment notifications only if it's for the current user
     if (notification.type === 'task_assigned' && notification.userId === user?.id) {
@@ -63,33 +65,54 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       message,
       relatedTaskId,
     });
+
+    if (SUPABASE_CONFIGURED) {
+      const targetUrl = relatedTaskId ? `/tasks?task=${relatedTaskId}` : '/dashboard';
+      void sendServerPushNotification({
+        userId: recipientId,
+        title,
+        body: message,
+        url: targetUrl,
+        data: {
+          type,
+          relatedTaskId,
+        }
+      });
+    }
   };
 
   const markAsRead = (notificationId: string) => {
-    setState(prev => ({
-      ...prev,
-      notifications: prev.notifications.map(n => 
-        n.id === notificationId ? { ...n, isRead: true } : n
-      )
-    }));
+    markNotificationInState(notificationId);
   };
 
   const markAllAsRead = () => {
     if (!user?.id) return;
     
-    setState(prev => ({
-      ...prev,
-      notifications: prev.notifications.map(n => 
-        n.userId === user.id ? { ...n, isRead: true } : n
-      )
-    }));
+    markAllNotificationsInState(user.id);
   };
 
   const removeNotification = (notificationId: string) => {
-    setState(prev => ({
-      ...prev,
-      notifications: prev.notifications.filter(n => n.id !== notificationId)
-    }));
+    removeNotificationFromState(notificationId);
+  };
+
+  const savePushSubscription = async (subscription: PushSubscription) => {
+    if (!user?.id || !SUPABASE_CONFIGURED) return;
+    if (!(subscription instanceof PushSubscription)) return;
+
+    const payload = subscription.toJSON();
+    if (!payload?.endpoint) return;
+
+    await supabase
+      .from('push_subscriptions')
+      .upsert({
+        user_id: user.id,
+        endpoint: payload.endpoint,
+        subscription: payload,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'endpoint' })
+      .then(({ error }) => {
+        if (error) console.warn('[Supabase] Failed to save push subscription', error);
+      });
   };
 
   // No auto-hide - popups stay until user dismisses them
@@ -102,7 +125,8 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     addNotification,
     removeNotification,
     showNotification,
-  }), [userNotifications, unreadCount, addNotification, markAsRead, markAllAsRead, removeNotification, showNotification]);
+    savePushSubscription,
+  }), [userNotifications, unreadCount, addNotification, markAsRead, markAllAsRead, removeNotification, showNotification, savePushSubscription]);
 
   return (
     <NotificationContext.Provider value={value}>
