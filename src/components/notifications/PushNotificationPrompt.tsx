@@ -16,6 +16,10 @@ function isPushSupported() {
 }
 
 export function PushNotificationPrompt() {
+  // Temporarily disabled until push notifications are fully implemented
+  return null;
+  
+  /* DISABLED - Uncomment when ready to implement push notifications
   const { savePushSubscription } = useNotifications();
   const { user } = useAuth();
 
@@ -206,6 +210,7 @@ export function PushNotificationPrompt() {
       )}
     </AnimatePresence>
   );
+  */
 }
 
 

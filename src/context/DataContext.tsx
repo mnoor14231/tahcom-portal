@@ -13,6 +13,7 @@ import { loadState, saveState } from '../data/seed.ts';
 import { supabase } from '../lib/supabaseClient.ts';
 import { useAuth } from './AuthContext.tsx';
 import { buildAdminApiUrl } from '../utils/apiBase.ts';
+import { KpiCompletionModal } from '../components/modals/KpiCompletionModal.tsx';
 
 interface DataContextValue {
   state: AppState;
@@ -488,10 +489,55 @@ async function hydrateFromSupabase() {
   };
 }
 
+// Helper to check if localStorage is available (works in PWA)
+function isLocalStorageAvailable(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const test = '__localStorage_test__';
+    window.localStorage.setItem(test, test);
+    window.localStorage.removeItem(test);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Helper to get seen completions from localStorage (PWA-compatible)
+function getSeenCompletions(userId: string): Set<string> {
+  if (typeof window === 'undefined' || !userId || !isLocalStorageAvailable()) return new Set();
+  try {
+    const stored = window.localStorage.getItem(`kpi-completions-seen-${userId}`);
+    if (!stored) return new Set();
+    const data = JSON.parse(stored);
+    return new Set(data.completedKpiIds || []);
+  } catch (error) {
+    console.warn('[KPI Completion] Failed to read seen completions:', error);
+    return new Set();
+  }
+}
+
+// Helper to mark a completion as seen (PWA-compatible)
+function markCompletionAsSeen(userId: string, kpiId: string) {
+  if (typeof window === 'undefined' || !userId || !isLocalStorageAvailable()) return;
+  try {
+    const seen = getSeenCompletions(userId);
+    seen.add(kpiId);
+    window.localStorage.setItem(`kpi-completions-seen-${userId}`, JSON.stringify({
+      completedKpiIds: Array.from(seen),
+      lastUpdated: new Date().toISOString()
+    }));
+  } catch (error) {
+    console.warn('[KPI Completion] Failed to save seen completion:', error);
+    // Ignore storage errors - PWA will still work, just won't remember seen completions
+  }
+}
+
 export function DataProvider({ children }: { children: React.ReactNode }) {
   const [state, setLocalState] = useState<AppState>(() => loadState());
   const { user, initializing } = useAuth();
   const pendingSync = useRef<Promise<void> | null>(null);
+  const [completedKpi, setCompletedKpi] = useState<KPI | null>(null);
+  const [showCompletionModal, setShowCompletionModal] = useState(false);
   const getAccessToken = async () => {
     const { data, error } = await supabase.auth.getSession();
     let token = data.session?.access_token;
@@ -630,6 +676,28 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
     return () => clearInterval(interval);
   }, [initializing, user?.id, refreshFromRemote]);
+
+  // Check for unseen completed KPIs when user loads or KPIs change
+  useEffect(() => {
+    if (initializing) return;
+    if (!user?.id) return;
+    if (showCompletionModal) return; // Don't check if modal is already showing
+
+    const seenCompletions = getSeenCompletions(user.id);
+    
+    // Find the first completed KPI that the user hasn't seen yet
+    const unseenCompletedKpi = state.kpis.find(kpi => {
+      const isCompleted = kpi.currentValue >= kpi.target;
+      const isInUserDepartment = kpi.departmentCode === user.departmentCode;
+      const notSeen = !seenCompletions.has(kpi.id);
+      return isCompleted && isInUserDepartment && notSeen;
+    });
+
+    if (unseenCompletedKpi) {
+      setCompletedKpi(unseenCompletedKpi);
+      setShowCompletionModal(true);
+    }
+  }, [initializing, user?.id, user?.departmentCode, state.kpis, showCompletionModal]);
 
   // Check and reset KPIs when periods end
   useEffect(() => {
@@ -816,6 +884,21 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     },
     updateKpi(kpi: KPI) {
       setLocalState(prev => {
+        // Check if KPI just reached completion
+        const previousKpi = prev.kpis.find(k => k.id === kpi.id);
+        const wasCompleted = previousKpi && previousKpi.currentValue >= previousKpi.target;
+        const isNowCompleted = kpi.currentValue >= kpi.target;
+        
+        // Show completion modal if KPI just reached completion (wasn't completed before, but is now)
+        // and user hasn't seen it yet
+        if (!wasCompleted && isNowCompleted && user?.id) {
+          const seenCompletions = getSeenCompletions(user.id);
+          if (!seenCompletions.has(kpi.id)) {
+            setCompletedKpi(kpi);
+            setShowCompletionModal(true);
+          }
+        }
+        
         const updated = { ...prev, kpis: prev.kpis.map(k => k.id === kpi.id ? kpi : k) };
         saveState(updated);
         if (SUPABASE_CONFIGURED) {
@@ -1015,7 +1098,23 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
   }), [state]);
 
-  return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
+  return (
+    <DataContext.Provider value={value}>
+      {children}
+      <KpiCompletionModal
+        isOpen={showCompletionModal}
+        onClose={() => {
+          // Mark this completion as seen when user closes the modal
+          if (completedKpi && user?.id) {
+            markCompletionAsSeen(user.id, completedKpi.id);
+          }
+          setShowCompletionModal(false);
+          setCompletedKpi(null);
+        }}
+        kpi={completedKpi}
+      />
+    </DataContext.Provider>
+  );
 }
 
 export function useData(): DataContextValue {

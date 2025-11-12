@@ -125,6 +125,12 @@ export function TasksPage() {
   }
 
   function markDone(task: Task) {
+    // Permission check: only managers or assigned members can mark tasks as done
+    const canMarkDone = isManager || (user?.id && task.assigneeUserIds.includes(user.id));
+    if (!canMarkDone) {
+      alert('You can only mark tasks assigned to you as done');
+      return;
+    }
     setSelectedTask(task);
     setIsCompleteModalOpen(true);
   }
@@ -132,6 +138,13 @@ export function TasksPage() {
   async function handleCompleteTask(taskId: string, files: File[], message?: string) {
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
+
+    // Permission check: only managers or assigned members can complete tasks
+    const canMarkDone = isManager || (user?.id && task.assigneeUserIds.includes(user.id));
+    if (!canMarkDone) {
+      alert('You can only complete tasks assigned to you');
+      return;
+    }
 
     // Convert files to base64 for demo storage
     const attachments = await Promise.all(
@@ -304,9 +317,23 @@ export function TasksPage() {
   async function handleRefresh() {
     setIsRefreshing(true);
     try {
+      // Check if online before refreshing (PWA-friendly)
+      if (navigator.onLine === false) {
+        alert('You are currently offline. Please check your internet connection and try again.');
+        setIsRefreshing(false);
+        return;
+      }
+      
       await refreshDirectory();
+      showNotification('task_assigned', 'Data Refreshed', 'Tasks and data have been refreshed successfully.');
     } catch (error) {
       console.error('Failed to refresh tasks', error);
+      // PWA-friendly error message
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        alert('Unable to refresh. Please check your internet connection.');
+      } else {
+        alert('Failed to refresh data. Please try again.');
+      }
     } finally {
       setIsRefreshing(false);
     }
@@ -437,6 +464,7 @@ export function TasksPage() {
                     const relatedKpi = t.relatedKpiId ? state.kpis.find(k => k.id === t.relatedKpiId) : null;
                     const isMyTask = user?.id ? t.assigneeUserIds.includes(user.id) : false;
                     const canEdit = isManager || (user?.id && t.assigneeUserIds.includes(user.id));
+                    const canMarkDone = isManager || (user?.id && t.assigneeUserIds.includes(user.id));
                     return (
                       <motion.div
                         key={t.id}
@@ -545,7 +573,7 @@ export function TasksPage() {
                         
                         {/* Action Buttons */}
                         <div className="space-y-2">
-                          {col !== 'completed' && (
+                          {col !== 'completed' && canMarkDone && (
                             <motion.button
                               whileHover={{ scale: 1.02 }}
                               whileTap={{ scale: 0.98 }}
@@ -634,6 +662,7 @@ export function TasksPage() {
                 const relatedKpi = t.relatedKpiId ? state.kpis.find(k => k.id === t.relatedKpiId) : null;
                 const isMyTask = user?.id ? t.assigneeUserIds.includes(user.id) : false;
                 const canEdit = isManager || (user?.id && t.assigneeUserIds.includes(user.id));
+                const canMarkDone = isManager || (user?.id && t.assigneeUserIds.includes(user.id));
                 return (
                   <motion.tr
                     key={t.id}
@@ -714,7 +743,7 @@ export function TasksPage() {
                     </td>
                     <td className="px-5 py-4">
                       <div className="flex gap-2 flex-wrap">
-                        {t.status !== 'completed' && (
+                        {t.status !== 'completed' && canMarkDone && (
                           <button
                             className="px-3 py-1.5 text-xs rounded-lg bg-gradient-to-r from-green-100 to-emerald-100 text-green-700 hover:from-green-200 hover:to-emerald-200 transition-all font-semibold border border-green-200"
                             onClick={() => markDone(t)}
